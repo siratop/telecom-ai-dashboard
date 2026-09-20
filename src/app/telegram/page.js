@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Send, RefreshCw, AlertCircle, CheckCircle, Trash2, MessageSquareOff, Search, Bot, Shield, User } from 'lucide-react';
+// 1. Importamos el cliente de Supabase
+import { supabase } from '../../lib/supabase'; // Ajusta la ruta si es diferente en tu proyecto
 
 export default function TelegramChatPage() {
   const [isMounted, setIsMounted] = useState(false);
@@ -18,44 +20,62 @@ export default function TelegramChatPage() {
   // ID designado para pruebas y gerencia
   const ADMIN_CHAT_ID = "896406306";
 
-  
+  // 2. Cargar historial desde PostgreSQL al inicio
   useEffect(() => {
     setIsMounted(true);
-    const chatsGuardados = localStorage.getItem('TELEGRAM_CONVERSACIONES_CRM');
-    if (chatsGuardados) {
-      try {
-        const parsed = JSON.parse(chatsGuardados);
-        setConversaciones(parsed);
-        const ids = Object.keys(parsed);
-        if (ids.length > 0) setChatActivoId(ids[0]);
-      } catch (e) {
-        console.error("Error al cargar historial", e);
-      }
-    } else {
-      const inicial = {
-        [ADMIN_CHAT_ID]: {
-          nombreUsuario: "Francisco (Gerencia)",
-          mensajes: [
-            { id: 1, emisor: "cliente", texto: "Prueba de inicio de sistema.", hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-          ]
-        }
-      };
-      setConversaciones(inicial);
-      setChatActivoId(ADMIN_CHAT_ID);
-      localStorage.setItem('TELEGRAM_CONVERSACIONES_CRM', JSON.stringify(inicial));
-    }
+    cargarChatsDesdeBD();
   }, []);
+
+  const cargarChatsDesdeBD = async () => {
+    try {
+      // Traemos las conversaciones y los mensajes ordenados por fecha
+      const { data: convs, error: errC } = await supabase.from('chat_conversaciones').select('*');
+      const { data: msgs, error: errM } = await supabase.from('chat_mensajes').select('*').order('created_at', { ascending: true });
+
+      if (errC || errM) {
+        console.error("Error al cargar base de datos", errC, errM);
+        return;
+      }
+
+      // Si la base de datos está completamente vacía, creamos el chat de gerencia por defecto
+      if (convs.length === 0) {
+        await supabase.from('chat_conversaciones').insert([{ chat_id: ADMIN_CHAT_ID, nombre_usuario: "Francisco (Gerencia)" }]);
+        await supabase.from('chat_mensajes').insert([{
+          chat_id: ADMIN_CHAT_ID,
+          emisor: "cliente",
+          texto: "Prueba de inicio de sistema. Conectado a PostgreSQL.",
+          hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+        cargarChatsDesdeBD(); // Recargamos para que lo muestre
+        return;
+      }
+
+      // Reconstruimos el objeto para la interfaz
+      const newState = {};
+      convs.forEach(c => {
+        newState[c.chat_id] = { nombreUsuario: c.nombre_usuario, mensajes: [] };
+      });
+      
+      msgs.forEach(m => {
+        if (newState[m.chat_id]) {
+          newState[m.chat_id].mensajes.push({ id: m.id, emisor: m.emisor, texto: m.texto, hora: m.hora });
+        }
+      });
+
+      setConversaciones(newState);
+      const ids = Object.keys(newState);
+      if (ids.length > 0 && !chatActivoId) setChatActivoId(ids[0]);
+
+    } catch (error) {
+      console.error("Error general en carga de chats", error);
+    }
+  };
 
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [chatActivoId, conversaciones]);
-
-  const actualizarYGuardar = (nuevasConversaciones) => {
-    setConversaciones(nuevasConversaciones);
-    localStorage.setItem('TELEGRAM_CONVERSACIONES_CRM', JSON.stringify(nuevasConversaciones));
-  };
 
   const obtenerRespuestaIA = (textoUsuario) => {
     const texto = textoUsuario.toLowerCase();
@@ -78,8 +98,13 @@ export default function TelegramChatPage() {
     return mensajesArray.some(m => m.texto === texto && m.emisor === 'cliente');
   };
 
+  // 3. Sincronización guardando en Supabase
   const ejecutarSincronizacion = async (esAutomatico = false) => {
-    const token = localStorage.getItem('TELEGRAM_BOT_TOKEN');
+    // Para seguridad, el token sí se lee localmente o de las variables de entorno
+    let token = "";
+    if (typeof window !== 'undefined') {
+      token = localStorage.getItem('TELEGRAM_BOT_TOKEN') || process.env.NEXT_PUBLIC_TELEGRAM_TOKEN;
+    }
     if (!token) return;
 
     if (!esAutomatico) setSincronizando(true);
@@ -88,8 +113,7 @@ export default function TelegramChatPage() {
       const data = await res.json();
 
       if (data.ok && data.result && data.result.length > 0) {
-        const chatsActualesStr = localStorage.getItem('TELEGRAM_CONVERSACIONES_CRM');
-        let nuevasConv = chatsActualesStr ? JSON.parse(chatsActualesStr) : { ...conversaciones };
+        let nuevasConv = { ...conversaciones };
         let contadorNuevos = 0;
         let ultimoChatId = chatActivoId;
 
@@ -106,17 +130,17 @@ export default function TelegramChatPage() {
                 nombreUsuario: chatId === ADMIN_CHAT_ID ? "Francisco (Gerencia)" : `${nombre} (${chatId})`,
                 mensajes: []
               };
+              // Crear chat en la BD
+              await supabase.from('chat_conversaciones').upsert({ chat_id: chatId, nombre_usuario: nuevasConv[chatId].nombreUsuario });
             }
 
             const yaExiste = nuevrasConvObjVerificacion(nuevasConv[chatId].mensajes, textoMsg);
             
             if (!yaExiste) {
-              nuevasConv[chatId].mensajes.push({
-                id: update.update_id,
-                emisor: "cliente",
-                texto: textoMsg,
-                hora: horaMsg
-              });
+              // Guardar mensaje de cliente en BD
+              await supabase.from('chat_mensajes').insert({ chat_id: chatId, emisor: "cliente", texto: textoMsg, hora: horaMsg });
+              
+              nuevasConv[chatId].mensajes.push({ id: update.update_id, emisor: "cliente", texto: textoMsg, hora: horaMsg });
               contadorNuevos++;
 
               if (modoIAActivo) {
@@ -127,12 +151,11 @@ export default function TelegramChatPage() {
                   body: JSON.stringify({ chat_id: chatId, text: `[Bot Asistente IA]:\n${respuestaAuto}` })
                 });
 
-                nuevasConv[chatId].mensajes.push({
-                  id: Date.now() + Math.random(),
-                  emisor: "bot",
-                  texto: respuestaAuto,
-                  hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                });
+                const horaMsgBot = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                // Guardar respuesta IA en BD
+                await supabase.from('chat_mensajes').insert({ chat_id: chatId, emisor: "bot", texto: respuestaAuto, hora: horaMsgBot });
+
+                nuevasConv[chatId].mensajes.push({ id: Date.now() + Math.random(), emisor: "bot", texto: respuestaAuto, hora: horaMsgBot });
               }
             }
             ultimoChatId = chatId;
@@ -140,7 +163,7 @@ export default function TelegramChatPage() {
         }
 
         if (contadorNuevos > 0) {
-          actualizarYGuardar(nuevasConv);
+          setConversaciones(nuevasConv);
           if (ultimoChatId && !chatActivoId) setChatActivoId(ultimoChatId);
         }
 
@@ -167,11 +190,15 @@ export default function TelegramChatPage() {
     return () => clearInterval(interval);
   }, [modoIAActivo, conversaciones, chatActivoId]);
 
+  // 4. Enviar mensaje manual y guardar en Supabase
   const enviarMensaje = async (e) => {
     e.preventDefault();
     if (!mensajeInput.trim() || !chatActivoId) return;
 
-    const token = localStorage.getItem('TELEGRAM_BOT_TOKEN');
+    let token = "";
+    if (typeof window !== 'undefined') {
+      token = localStorage.getItem('TELEGRAM_BOT_TOKEN') || process.env.NEXT_PUBLIC_TELEGRAM_TOKEN;
+    }
     if (!token) {
       alert("⚠️ Configura el Token de Telegram en la sección de Configuración.");
       return;
@@ -190,12 +217,17 @@ export default function TelegramChatPage() {
 
       const data = await res.json();
       if (data.ok) {
-        const nuevoMensaje = {
-          id: Date.now(),
+        const horaAdmin = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        // Insertamos en PostgreSQL
+        await supabase.from('chat_mensajes').insert({
+          chat_id: chatActivoId,
           emisor: "admin",
           texto: mensajeInput,
-          hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
+          hora: horaAdmin
+        });
+
+        const nuevoMensaje = { id: Date.now(), emisor: "admin", texto: mensajeInput, hora: horaAdmin };
 
         const chatActual = conversaciones[chatActivoId] || { nombreUsuario: `Usuario ${chatActivoId}`, mensajes: [] };
         const actualizado = {
@@ -206,7 +238,7 @@ export default function TelegramChatPage() {
           }
         };
 
-        actualizarYGuardar(actualizado);
+        setConversaciones(actualizado);
         setMensajeInput("");
       } else {
         alert(`❌ Error al enviar: ${data.description}`);
@@ -218,19 +250,24 @@ export default function TelegramChatPage() {
     }
   };
 
-  const limpiarHistorial = () => {
-    if (window.confirm("¿Deseas limpiar TODAS las conversaciones del chat? (Esta acción no se puede deshacer)")) {
+  // 5. Limpieza de BD
+  const limpiarHistorial = async () => {
+    if (window.confirm("¿Deseas limpiar TODAS las conversaciones del chat en la Base de Datos? (Irreversible)")) {
+      // Elimina todas las conversaciones (Cascada borra los mensajes)
+      await supabase.from('chat_conversaciones').delete().neq('chat_id', '0');
       setConversaciones({});
       setChatActivoId("");
-      localStorage.removeItem('TELEGRAM_CONVERSACIONES_CRM');
     }
   };
 
-  const eliminarChatIndividual = (idAEliminar) => {
-    if (window.confirm("¿Seguro que deseas eliminar esta conversación en particular?")) {
+  const eliminarChatIndividual = async (idAEliminar) => {
+    if (window.confirm("¿Seguro que deseas eliminar esta conversación de la Base de Datos?")) {
+      await supabase.from('chat_conversaciones').delete().eq('chat_id', idAEliminar);
+      
       const nuevasConv = { ...conversaciones };
       delete nuevasConv[idAEliminar];
-      actualizarYGuardar(nuevasConv);
+      setConversaciones(nuevasConv);
+      
       if (chatActivoId === idAEliminar) {
         const restantes = Object.keys(nuevasConv);
         setChatActivoId(restantes.length > 0 ? restantes[0] : "");
@@ -240,7 +277,6 @@ export default function TelegramChatPage() {
 
   if (!isMounted) return null;
 
-  
   const listaIds = Object.keys(conversaciones).filter(id => {
     const chat = conversaciones[id];
     const termino = busquedaUsuario.toLowerCase();
@@ -251,7 +287,6 @@ export default function TelegramChatPage() {
   const chatClientIds = listaIds.filter(id => id !== ADMIN_CHAT_ID);
   const chatActivo = conversaciones[chatActivoId];
 
-  
   const renderChatItem = (id, esAdmin = false) => {
     const chat = conversaciones[id];
     const ultimoMsg = chat.mensajes[chat.mensajes.length - 1];
@@ -322,7 +357,6 @@ export default function TelegramChatPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* PANEL LATERAL DE LISTA DE CHATS */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 h-[600px] flex flex-col">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Bandeja de Conversaciones</h3>
           
@@ -345,7 +379,6 @@ export default function TelegramChatPage() {
               </div>
             ) : (
               <>
-                {/* SECCIÓN ADMINISTRADOR / PRUEBAS */}
                 {chatAdminIds.length > 0 && (
                   <div className="mb-4">
                     <h4 className="text-[10px] font-bold text-purple-600 uppercase tracking-wider mb-2 px-1 border-b border-purple-100 pb-1">👨‍💻 Entorno de Pruebas / Gerencia</h4>
@@ -353,7 +386,6 @@ export default function TelegramChatPage() {
                   </div>
                 )}
                 
-                {/* SECCIÓN CLIENTES REALES */}
                 {chatClientIds.length > 0 && (
                   <div>
                     <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2 px-1 border-b border-gray-100 pb-1">👥 Clientes Registrados</h4>
@@ -365,7 +397,6 @@ export default function TelegramChatPage() {
           </div>
         </div>
 
-        {/* ÁREA PRINCIPAL DEL CHAT */}
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-[600px]">
           {!chatActivo ? (
             <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-8">
@@ -375,7 +406,6 @@ export default function TelegramChatPage() {
             </div>
           ) : (
             <>
-              {/* CABECERA DEL CHAT ACTIVO */}
               <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/70 rounded-t-2xl">
                 <div className="flex items-center">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold mr-3 shadow-sm ${chatActivoId === ADMIN_CHAT_ID ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
@@ -409,7 +439,6 @@ export default function TelegramChatPage() {
                 </div>
               </div>
 
-              {/* CONTENEDOR DE MENSAJES */}
               <div ref={chatContainerRef} className="flex-1 p-6 overflow-y-auto bg-[#F8FAFC] flex flex-col gap-3">
                 {chatActivo.mensajes.length === 0 && (
                   <div className="text-center text-gray-400 my-auto text-sm">
@@ -456,7 +485,6 @@ export default function TelegramChatPage() {
                 ))}
               </div>
 
-              {/* INPUT DE ENVÍO */}
               <form onSubmit={enviarMensaje} className="p-4 bg-white rounded-b-2xl flex gap-3 border-t border-gray-100">
                 <input 
                   type="text" 

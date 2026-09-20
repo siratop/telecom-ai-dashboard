@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { MapPin, CheckCircle, XCircle, Plus, Layers, Trash2, MousePointerClick, AlertTriangle, Search, Route, GitMerge, Undo, Save, Home, Building, Filter, User, Phone, CreditCard, Network, Edit, Target, X } from 'lucide-react';
 import dynamic from 'next/dynamic';
+// 1. Importamos el cliente de Supabase
+import { supabase } from '../../lib/supabase'; // Ajusta la ruta si es necesario (ej: '@/lib/supabase')
 
 const MapaCobertura = dynamic(() => import('@/components/MapaCobertura'), { 
   ssr: false,
@@ -24,7 +26,7 @@ export default function ZonasCoberturaPage() {
   const [modoDibujo, setModoDibujo] = useState(false);
   const [puntosRutaActual, setPuntosRutaActual] = useState([]);
   
-  
+
   const [clientes, setClientes] = useState([]);
   const [nombreCliente, setNombreCliente] = useState("");
   const [cedulaCliente, setCedulaCliente] = useState("");
@@ -34,37 +36,40 @@ export default function ZonasCoberturaPage() {
   const [descripcionCliente, setDescripcionCliente] = useState("");
   const [nodoAsignadoCliente, setNodoAsignadoCliente] = useState("");
   
- 
   const [busquedaNodo, setBusquedaNodo] = useState("");
   const [busquedaRuta, setBusquedaRuta] = useState("");
   const [busquedaCliente, setBusquedaCliente] = useState("");
 
- 
   const [alertasActivas, setAlertasActivas] = useState([]);
   const [tabActiva, setTabActiva] = useState("nodos");
   const [latSeleccionada, setLatSeleccionada] = useState(null);
   const [lngSeleccionada, setLngSeleccionada] = useState(null);
   
-  
+
   const [editandoId, setEditandoId] = useState(null); 
   const [centroMapa, setCentroMapa] = useState(null); 
 
-  
   const [verNodos, setVerNodos] = useState(true);
   const [verRutas, setVerRutas] = useState(true);
   const [verClientes, setVerClientes] = useState(true);
   const [elementoEnfoque, setElementoEnfoque] = useState("todos"); 
 
-  
+  // 2. Cargar datos desde Supabase al montar el componente
   useEffect(() => {
-    const nodosGuardados = localStorage.getItem('NODOS_FIBRA_PUERTO_ORDAZ');
-    const rutasGuardadas = localStorage.getItem('RUTAS_FIBRA_PUERTO_ORDAZ');
-    const clientesGuardados = localStorage.getItem('CLIENTES_FIBRA_PUERTO_ORDAZ');
-    
-    if (nodosGuardados) setZonas(JSON.parse(nodosGuardados));
-    if (rutasGuardadas) setRutas(JSON.parse(rutasGuardadas));
-    if (clientesGuardados) setClientes(JSON.parse(clientesGuardados));
+    const cargarDatosBD = async () => {
+      // Hacemos las 3 consultas en paralelo para mayor velocidad
+      const [nodosRes, rutasRes, clientesRes] = await Promise.all([
+        supabase.from('mapa_nodos').select('*'),
+        supabase.from('mapa_rutas').select('*'),
+        supabase.from('mapa_clientes').select('*')
+      ]);
 
+      if (nodosRes.data) setZonas(nodosRes.data);
+      if (rutasRes.data) setRutas(rutasRes.data);
+      if (clientesRes.data) setClientes(clientesRes.data);
+    };
+
+    cargarDatosBD();
     cargarAlertas();
     const intervalo = setInterval(cargarAlertas, 10000);
     return () => clearInterval(intervalo);
@@ -80,18 +85,6 @@ export default function ZonasCoberturaPage() {
     }
   };
 
-  const persistirNodos = (nuevasZonas) => {
-    setZonas(nuevasZonas);
-    localStorage.setItem('NODOS_FIBRA_PUERTO_ORDAZ', JSON.stringify(nuevasZonas));
-  };
-  const persistirRutas = (nuevasRutas) => {
-    setRutas(nuevasRutas);
-    localStorage.setItem('RUTAS_FIBRA_PUERTO_ORDAZ', JSON.stringify(nuevasRutas));
-  };
-  const persistirClientes = (nuevosClientes) => {
-    setClientes(nuevosClientes);
-    localStorage.setItem('CLIENTES_FIBRA_PUERTO_ORDAZ', JSON.stringify(nuevosClientes));
-  };
 
   const limpiarFormularios = () => {
     setEditandoId(null);
@@ -117,7 +110,6 @@ export default function ZonasCoberturaPage() {
     }
   };
 
-  
   const ubicarEnMapa = (lat, lng, zoomLevel = 17) => {
     setCentroMapa({ lat: parseFloat(lat), lng: parseFloat(lng), zoom: zoomLevel, timestamp: Date.now() });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -145,8 +137,8 @@ export default function ZonasCoberturaPage() {
     }
   };
 
- 
-  const guardarNodo = (e) => {
+  // 3. Lógica de Supabase para NODOS
+  const guardarNodo = async (e) => {
     e.preventDefault();
     if (!nuevoSector.trim() || !latSeleccionada || !lngSeleccionada) {
       alert("Por favor, asigna un nombre y marca el punto en el mapa.");
@@ -163,36 +155,35 @@ export default function ZonasCoberturaPage() {
     };
 
     if (editandoId) {
-      persistirNodos(zonas.map(z => z.id === editandoId ? { ...z, ...nodoData } : z));
-      alert("Nodo actualizado correctamente.");
+      const { data, error } = await supabase.from('mapa_nodos').update(nodoData).eq('id', editandoId).select();
+      if (!error && data) {
+        setZonas(zonas.map(z => z.id === editandoId ? data[0] : z));
+        alert("Nodo actualizado correctamente.");
+      } else { alert("Error al actualizar nodo."); }
     } else {
-      persistirNodos([...zonas, { id: Date.now(), ...nodoData }]);
+      const { data, error } = await supabase.from('mapa_nodos').insert([nodoData]).select();
+      if (!error && data) {
+        setZonas([...zonas, data[0]]);
+      } else { alert("Error al guardar nodo."); }
     }
     limpiarFormularios();
   };
 
-  const editarNodo = (nodo) => {
-    setTabActiva("nodos");
-    setEditandoId(nodo.id);
-    setNuevoSector(nodo.sector);
-    setNuevoRadio(nodo.radio.toString());
-    setLatSeleccionada(nodo.lat);
-    setLngSeleccionada(nodo.lng);
-    manejarEnfoque(`nodo-${nodo.id}`);
-  };
-
-  const eliminarNodo = (id) => {
+  const eliminarNodo = async (id) => {
     if (window.confirm("¿Eliminar este nodo? (Las rutas y clientes asignados quedarán huérfanos)")) {
-      persistirNodos(zonas.filter(z => z.id !== id));
-      if (elementoEnfoque === `nodo-${id}`) setElementoEnfoque("todos");
-      if (editandoId === id) limpiarFormularios();
+      const { error } = await supabase.from('mapa_nodos').delete().eq('id', id);
+      if (!error) {
+        setZonas(zonas.filter(z => z.id !== id));
+        if (elementoEnfoque === `nodo-${id}`) setElementoEnfoque("todos");
+        if (editandoId === id) limpiarFormularios();
+      }
     }
   };
 
- 
   const deshacerUltimoPunto = () => setPuntosRutaActual(prev => prev.slice(0, -1));
 
-  const guardarRutaObj = (e) => {
+  // 4. Lógica de Supabase para RUTAS
+  const guardarRutaObj = async (e) => {
     e.preventDefault();
     if (!nombreRuta.trim() || puntosRutaActual.length < 2) {
       alert("Asigna un nombre y dibuja al menos una línea (2 puntos) en el mapa.");
@@ -200,41 +191,39 @@ export default function ZonasCoberturaPage() {
     }
     const rutaData = {
       nombre: nombreRuta, 
-      nodo_id: nodoAsignadoRuta, 
-      ruta_padre_id: rutaMadre,
+      nodo_id: nodoAsignadoRuta ? parseInt(nodoAsignadoRuta) : null, 
+      ruta_padre_id: rutaMadre ? parseInt(rutaMadre) : null,
       puntos: puntosRutaActual
     };
 
     if (editandoId) {
-      persistirRutas(rutas.map(r => r.id === editandoId ? { ...r, ...rutaData } : r));
-      alert("Ruta actualizada correctamente.");
+      const { data, error } = await supabase.from('mapa_rutas').update(rutaData).eq('id', editandoId).select();
+      if (!error && data) {
+        setRutas(rutas.map(r => r.id === editandoId ? data[0] : r));
+        alert("Ruta actualizada correctamente.");
+      }
     } else {
-      persistirRutas([...rutas, { id: Date.now(), ...rutaData }]);
+      const { data, error } = await supabase.from('mapa_rutas').insert([rutaData]).select();
+      if (!error && data) {
+        setRutas([...rutas, data[0]]);
+      }
     }
     limpiarFormularios();
   };
 
-  const editarRuta = (ruta) => {
-    setTabActiva("rutas");
-    setEditandoId(ruta.id);
-    setNombreRuta(ruta.nombre);
-    setNodoAsignadoRuta(ruta.nodo_id || "");
-    setRutaMadre(ruta.ruta_padre_id || "");
-    setPuntosRutaActual(ruta.puntos);
-    setModoDibujo(true);
-    manejarEnfoque(`ruta-${ruta.id}`);
-  };
-
-  const eliminarRuta = (id) => {
+  const eliminarRuta = async (id) => {
     if (window.confirm("¿Eliminar este trazado de red?")) {
-      persistirRutas(rutas.filter(r => r.id !== id));
-      if (elementoEnfoque === `ruta-${id}`) setElementoEnfoque("todos");
-      if (editandoId === id) limpiarFormularios();
+      const { error } = await supabase.from('mapa_rutas').delete().eq('id', id);
+      if (!error) {
+        setRutas(rutas.filter(r => r.id !== id));
+        if (elementoEnfoque === `ruta-${id}`) setElementoEnfoque("todos");
+        if (editandoId === id) limpiarFormularios();
+      }
     }
   };
 
- 
-  const guardarCliente = (e) => {
+  // 5. Lógica de Supabase para CLIENTES
+  const guardarCliente = async (e) => {
     e.preventDefault();
     if (!nombreCliente.trim() || !cedulaCliente.trim() || !latSeleccionada || !lngSeleccionada || !nodoAsignadoCliente) {
       alert("Faltan datos obligatorios o marcar la ubicación en el mapa.");
@@ -248,18 +237,56 @@ export default function ZonasCoberturaPage() {
       genero: generoCliente,
       tipo: tipoCliente,
       descripcion: descripcionCliente,
-      nodo_id: nodoAsignadoCliente,
+      nodo_id: parseInt(nodoAsignadoCliente),
       lat: parseFloat(latSeleccionada),
       lng: parseFloat(lngSeleccionada)
     };
 
     if (editandoId) {
-      persistirClientes(clientes.map(c => c.id === editandoId ? { ...c, ...clienteData } : c));
-      alert("Cliente actualizado correctamente.");
+      const { data, error } = await supabase.from('mapa_clientes').update(clienteData).eq('id', editandoId).select();
+      if (!error && data) {
+        setClientes(clientes.map(c => c.id === editandoId ? data[0] : c));
+        alert("Cliente actualizado correctamente.");
+      }
     } else {
-      persistirClientes([...clientes, { id: Date.now(), ...clienteData }]);
+      const { data, error } = await supabase.from('mapa_clientes').insert([clienteData]).select();
+      if (!error && data) {
+        setClientes([...clientes, data[0]]);
+      }
     }
     limpiarFormularios();
+  };
+
+  const eliminarCliente = async (id) => {
+    if (window.confirm("¿Eliminar este punto de cliente?")) {
+      const { error } = await supabase.from('mapa_clientes').delete().eq('id', id);
+      if (!error) {
+        setClientes(clientes.filter(c => c.id !== id));
+        if (elementoEnfoque === `cliente-${id}`) setElementoEnfoque("todos");
+        if (editandoId === id) limpiarFormularios();
+      }
+    }
+  };
+
+  const editarNodo = (nodo) => {
+    setTabActiva("nodos");
+    setEditandoId(nodo.id);
+    setNuevoSector(nodo.sector);
+    setNuevoRadio(nodo.radio.toString());
+    setLatSeleccionada(nodo.lat);
+    setLngSeleccionada(nodo.lng);
+    manejarEnfoque(`nodo-${nodo.id}`);
+  };
+
+  const editarRuta = (ruta) => {
+    setTabActiva("rutas");
+    setEditandoId(ruta.id);
+    setNombreRuta(ruta.nombre);
+    setNodoAsignadoRuta(ruta.nodo_id || "");
+    setRutaMadre(ruta.ruta_padre_id || "");
+    setPuntosRutaActual(ruta.puntos);
+    setModoDibujo(true);
+    manejarEnfoque(`ruta-${ruta.id}`);
   };
 
   const editarCliente = (cliente) => {
@@ -277,15 +304,6 @@ export default function ZonasCoberturaPage() {
     manejarEnfoque(`cliente-${cliente.id}`);
   };
 
-  const eliminarCliente = (id) => {
-    if (window.confirm("¿Eliminar este punto de cliente?")) {
-      persistirClientes(clientes.filter(c => c.id !== id));
-      if (elementoEnfoque === `cliente-${id}`) setElementoEnfoque("todos");
-      if (editandoId === id) limpiarFormularios();
-    }
-  };
-
- 
   const zonasConAlertas = zonas.map(zona => ({
     ...zona,
     tieneFalla: alertasActivas.some(alerta => alerta.nodo === zona.sector),
@@ -332,7 +350,6 @@ export default function ZonasCoberturaPage() {
     return true;
   }) : [];
 
- 
   const zonasFiltradas = zonasConAlertas.filter(z => z.sector.toLowerCase().includes(busquedaNodo.toLowerCase()));
   const rutasFiltradas = rutas.filter(r => r.nombre.toLowerCase().includes(busquedaRuta.toLowerCase()));
   const clientesFiltrados = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaCliente.toLowerCase()) || c.cedula.includes(busquedaCliente));
@@ -346,7 +363,7 @@ export default function ZonasCoberturaPage() {
         <p className="text-gray-500 mt-1">Gestiona nodos de cobertura, jerarquía de fibra óptica y registro exacto de clientes.</p>
       </div>
 
-      {/* BARRA DE CONTROL DEL MAPA */}
+
       <div className="flex flex-col md:flex-row gap-4 mb-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100 items-center justify-between">
         <div className="flex items-center gap-6">
           <div className="flex items-center text-gray-700 font-bold text-sm">
@@ -366,7 +383,7 @@ export default function ZonasCoberturaPage() {
           </label>
         </div>
         
-        {/* NUEVO SELECTOR GLOBAL */}
+
         <div className="flex items-center gap-3 w-full md:w-auto border-t md:border-t-0 pt-3 md:pt-0 border-gray-100">
           <span className="text-sm font-bold text-gray-700">Enfocar en Mapa:</span>
           <select value={elementoEnfoque} onChange={e => manejarEnfoque(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 min-w-[220px]">
@@ -394,7 +411,6 @@ export default function ZonasCoberturaPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-        {/* MAPA */}
         <div className="lg:col-span-2 bg-white p-4 rounded-xl shadow-sm border border-gray-100 h-[600px] relative z-10">
           <MapaCobertura 
             zonas={zonasParaMapa}
@@ -409,7 +425,7 @@ export default function ZonasCoberturaPage() {
           />
         </div>
 
-        {/* CONTROLES LATERALES */}
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col h-[600px] overflow-hidden">
           <div className="flex border-b border-gray-200">
             <button onClick={() => cambiarTab("nodos")} className={`flex-1 py-3 text-xs font-bold text-center border-b-2 transition-colors ${tabActiva === "nodos" ? "border-blue-600 text-blue-600 bg-blue-50/30" : "border-transparent text-gray-500 hover:bg-gray-50"}`}>
@@ -431,7 +447,7 @@ export default function ZonasCoberturaPage() {
               </div>
             )}
 
-            {/* FORMULARIO NODOS */}
+
             {tabActiva === "nodos" && (
               <form onSubmit={guardarNodo} className={`space-y-4 ${editandoId ? 'mt-4' : ''}`}>
                 <div className={`p-3 rounded-lg text-xs font-medium flex items-center ${latSeleccionada ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-500'}`}>
@@ -448,19 +464,8 @@ export default function ZonasCoberturaPage() {
                     <span>Radio de Cobertura:</span>
                     <span className="text-blue-700 font-bold">{nuevoRadio} metros</span>
                   </label>
-                  <input 
-                    type="range" 
-                    min="100" 
-                    max="5000" 
-                    step="100" 
-                    value={nuevoRadio} 
-                    onChange={(e) => setNuevoRadio(e.target.value)} 
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" 
-                  />
-                  <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-                    <span>100m</span>
-                    <span>5Km</span>
-                  </div>
+                  <input type="range" min="100" max="5000" step="100" value={nuevoRadio} onChange={(e) => setNuevoRadio(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                  <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>100m</span><span>5Km</span></div>
                 </div>
 
                 <button type="submit" className={`w-full py-2.5 text-white rounded-lg font-semibold flex items-center justify-center transition-colors ${editandoId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
@@ -470,7 +475,7 @@ export default function ZonasCoberturaPage() {
               </form>
             )}
 
-            {/* FORMULARIO RUTAS */}
+
             {tabActiva === "rutas" && (
               <form onSubmit={guardarRutaObj} className={`space-y-4 ${editandoId ? 'mt-4' : ''}`}>
                 <div className="p-3 bg-emerald-50 rounded-lg text-xs text-emerald-800 font-medium">
@@ -518,7 +523,7 @@ export default function ZonasCoberturaPage() {
               </form>
             )}
 
-            {/* FORMULARIO CLIENTES */}
+
             {tabActiva === "clientes" && (
               <form onSubmit={guardarCliente} className={`space-y-4 ${editandoId ? 'mt-4' : ''}`}>
                 <div className={`p-3 rounded-lg text-xs font-medium flex items-center ${latSeleccionada ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500'}`}>
@@ -584,7 +589,7 @@ export default function ZonasCoberturaPage() {
         </div>
       </div>
 
-      {/* LISTADOS Y TABLAS */}
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex space-x-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
@@ -607,7 +612,7 @@ export default function ZonasCoberturaPage() {
           </div>
         </div>
         
-        {/* TABLA NODOS */}
+
         {tabActiva === "nodos" && (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[600px]">
@@ -634,7 +639,7 @@ export default function ZonasCoberturaPage() {
           </div>
         )}
 
-        {/* TABLA RUTAS */}
+
         {tabActiva === "rutas" && (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[600px]">
@@ -645,7 +650,7 @@ export default function ZonasCoberturaPage() {
               </thead>
               <tbody className="text-sm text-gray-700 divide-y divide-gray-50">
                 {rutasFiltradas.map((ruta) => {
-                  const rutaMadreObj = ruta.ruta_padre_id ? rutas.find(r => r.id.toString() === ruta.ruta_padre_id) : null;
+                  const rutaMadreObj = ruta.ruta_padre_id ? rutas.find(r => r.id.toString() === ruta.ruta_padre_id.toString()) : null;
                   const nodoIdFinal = rutaMadreObj ? rutaMadreObj.nodo_id : ruta.nodo_id;
                   const nodoPadre = zonas.find(z => z.id.toString() === nodoIdFinal?.toString());
                   
@@ -676,7 +681,6 @@ export default function ZonasCoberturaPage() {
           </div>
         )}
 
-        {/* TABLA CLIENTES */}
         {tabActiva === "clientes" && (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[900px]">

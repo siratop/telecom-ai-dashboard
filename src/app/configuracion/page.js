@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Settings, Save, Sliders, PhoneCall, Send, ToggleLeft, ToggleRight, CheckCircle2, Banknote, RefreshCcw, MessageSquareQuote } from 'lucide-react';
+// Importamos el cliente de Supabase (Asegúrate de que la ruta sea correcta según tu estructura)
+import { supabase } from '../../lib/supabase';
 
 export default function ConfiguracionPage() {
   const [temperatura, setTemperatura] = useState("0.7");
@@ -20,31 +22,48 @@ export default function ConfiguracionPage() {
   const [promptSistema, setPromptSistema] = useState("Eres un asistente virtual de Telecom AI. Tu objetivo es ayudar a los clientes con información de planes, soporte técnico y validación de cobertura de fibra óptica.");
   
   const [guardado, setGuardado] = useState(false);
+  const [guardando, setGuardando] = useState(false); // Nuevo estado para feedback visual
 
   useEffect(() => {
-    setTelegramToken(localStorage.getItem('TELEGRAM_BOT_TOKEN') || "");
-    setTelegramChatId(localStorage.getItem('TELEGRAM_CHAT_ID') || "");
-    setNumeroSoporte(localStorage.getItem('NUMERO_SOPORTE') || "+58 412-0000000");
-    setTemperatura(localStorage.getItem('TEMPERATURA_IA') || "0.7");
-    setPromptSistema(localStorage.getItem('PROMPT_SISTEMA') || "Eres un asistente virtual de Telecom AI...");
-    
-    setTipoTasa(localStorage.getItem('TIPO_TASA') || "api");
-    setTasaUSD(localStorage.getItem('TASA_USD') || "42.50");
-    setTasaEUR(localStorage.getItem('TASA_EUR') || "45.10");
-    setTasaUSDT(localStorage.getItem('TASA_USDT') || "43.00");
-    
-    const estadoBot = localStorage.getItem('BOT_ACTIVO');
-    if (estadoBot !== null) setBotActivo(estadoBot === 'true');
+    // FUNCIÓN PARA CARGAR DESDE SUPABASE EN LUGAR DE LOCALSTORAGE
+    const cargarConfiguracionBD = async () => {
+      const { data, error } = await supabase.from('configuracion').select('*');
+      
+      if (error) {
+        console.error("Error al cargar configuración:", error);
+        return;
+      }
 
-    if ((localStorage.getItem('TIPO_TASA') || "api") === "api") {
-      actualizarTasasDesdeAPI();
-    }
+      if (data && data.length > 0) {
+        // Convertimos el array de la BD en un objeto para leerlo fácil
+        const configBD = {};
+        data.forEach(item => { configBD[item.clave] = item.valor; });
+
+        if (configBD['TELEGRAM_BOT_TOKEN']) setTelegramToken(configBD['TELEGRAM_BOT_TOKEN']);
+        if (configBD['TELEGRAM_CHAT_ID']) setTelegramChatId(configBD['TELEGRAM_CHAT_ID']);
+        if (configBD['NUMERO_SOPORTE']) setNumeroSoporte(configBD['NUMERO_SOPORTE']);
+        if (configBD['TEMPERATURA_IA']) setTemperatura(configBD['TEMPERATURA_IA']);
+        if (configBD['PROMPT_SISTEMA']) setPromptSistema(configBD['PROMPT_SISTEMA']);
+        if (configBD['TIPO_TASA']) setTipoTasa(configBD['TIPO_TASA']);
+        if (configBD['TASA_USD']) setTasaUSD(configBD['TASA_USD']);
+        if (configBD['TASA_EUR']) setTasaEUR(configBD['TASA_EUR']);
+        if (configBD['TASA_USDT']) setTasaUSDT(configBD['TASA_USDT']);
+        
+        if (configBD['BOT_ACTIVO'] !== undefined) setBotActivo(configBD['BOT_ACTIVO'] === 'true');
+
+        // Si es API, actualiza las tasas automáticamente al cargar
+        if ((configBD['TIPO_TASA'] || "api") === "api") {
+          actualizarTasasDesdeAPI();
+        }
+      }
+    };
+
+    cargarConfiguracionBD();
   }, []);
 
   const actualizarTasasDesdeAPI = async () => {
     setCargandoTasas(true);
     try {
-      
       const fetchSeguro = async (url) => {
         const res = await fetch(url);
         if (!res.ok) throw new Error("Error en respuesta");
@@ -70,21 +89,36 @@ export default function ConfiguracionPage() {
     }
   };
 
-  const guardarConfiguracion = (e) => {
+  const guardarConfiguracion = async (e) => {
     e.preventDefault();
-    localStorage.setItem('TELEGRAM_BOT_TOKEN', telegramToken);
-    localStorage.setItem('TELEGRAM_CHAT_ID', telegramChatId);
-    localStorage.setItem('NUMERO_SOPORTE', numeroSoporte);
-    localStorage.setItem('TEMPERATURA_IA', temperatura);
-    localStorage.setItem('BOT_ACTIVO', botActivo.toString());
-    localStorage.setItem('PROMPT_SISTEMA', promptSistema);
-    localStorage.setItem('TIPO_TASA', tipoTasa);
-    localStorage.setItem('TASA_USD', tasaUSD);
-    localStorage.setItem('TASA_EUR', tasaEUR);
-    localStorage.setItem('TASA_USDT', tasaUSDT);
+    setGuardando(true);
 
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 3000);
+    // Preparamos el array de objetos para Supabase
+    const configuraciones = [
+      { clave: 'TELEGRAM_BOT_TOKEN', valor: telegramToken },
+      { clave: 'TELEGRAM_CHAT_ID', valor: telegramChatId },
+      { clave: 'NUMERO_SOPORTE', valor: numeroSoporte },
+      { clave: 'TEMPERATURA_IA', valor: temperatura },
+      { clave: 'BOT_ACTIVO', valor: botActivo.toString() },
+      { clave: 'PROMPT_SISTEMA', valor: promptSistema },
+      { clave: 'TIPO_TASA', valor: tipoTasa },
+      { clave: 'TASA_USD', valor: tasaUSD },
+      { clave: 'TASA_EUR', valor: tasaEUR },
+      { clave: 'TASA_USDT', valor: tasaUSDT },
+    ];
+
+    // upsert: inserta o actualiza si la clave ya existe
+    const { error } = await supabase.from('configuracion').upsert(configuraciones);
+
+    setGuardando(false);
+
+    if (error) {
+      console.error("Error al guardar en Supabase:", error);
+      alert("Hubo un error al guardar en la base de datos.");
+    } else {
+      setGuardado(true);
+      setTimeout(() => setGuardado(false), 3000);
+    }
   };
 
   return (
@@ -93,12 +127,12 @@ export default function ConfiguracionPage() {
         <h1 className="text-3xl font-bold text-gray-800 flex items-center">
           <Settings className="w-8 h-8 mr-3 text-blue-600" /> Configuración del Sistema
         </h1>
-        <p className="text-gray-500 mt-1">Parámetros operativos del bot, umbrales de Gemini, finanzas y líneas de soporte.</p>
+        <p className="text-gray-500 mt-1">Parámetros operativos del bot, umbrales de Gemini, finanzas y líneas de soporte (Guardados en PostgreSQL).</p>
       </div>
 
       {guardado && (
         <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-xl text-sm font-medium flex items-center shadow-sm">
-          <CheckCircle2 className="w-5 h-5 mr-2" /> Configuración y credenciales actualizadas correctamente en el sistema.
+          <CheckCircle2 className="w-5 h-5 mr-2" /> Configuración y credenciales guardadas en la base de datos de Supabase.
         </div>
       )}
 
@@ -203,8 +237,9 @@ export default function ConfiguracionPage() {
         </div>
 
         <div className="flex justify-end pt-4 pb-12">
-          <button type="submit" className="flex items-center px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold text-sm shadow-md">
-            <Save className="w-5 h-5 mr-2" /> Guardar Todos los Cambios
+          <button type="submit" disabled={guardando} className="flex items-center px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold text-sm shadow-md disabled:opacity-50 transition-all">
+            <Save className={`w-5 h-5 mr-2 ${guardando ? 'animate-pulse' : ''}`} /> 
+            {guardando ? 'Guardando en BD...' : 'Guardar Todos los Cambios'}
           </button>
         </div>
       </form>
