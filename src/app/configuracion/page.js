@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Settings, Save, Sliders, PhoneCall, Send, ToggleLeft, ToggleRight, CheckCircle2, Banknote, RefreshCcw, MessageSquareQuote } from 'lucide-react';
-// Importamos el cliente de Supabase (Asegúrate de que la ruta sea correcta según tu estructura)
+import { Settings, Save, Sliders, PhoneCall, Send, ToggleLeft, ToggleRight, CheckCircle2, Banknote, RefreshCcw, MessageSquareQuote, Key } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 export default function ConfiguracionPage() {
@@ -21,11 +20,13 @@ export default function ConfiguracionPage() {
 
   const [promptSistema, setPromptSistema] = useState("Eres un asistente virtual de Telecom AI. Tu objetivo es ayudar a los clientes con información de planes, soporte técnico y validación de cobertura de fibra óptica.");
   
+  // NUEVO ESTADO PARA EL CÓDIGO DE ADMINISTRADOR
+  const [codigoAdmin, setCodigoAdmin] = useState("");
+
   const [guardado, setGuardado] = useState(false);
-  const [guardando, setGuardando] = useState(false); // Nuevo estado para feedback visual
+  const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
-    // FUNCIÓN PARA CARGAR DESDE SUPABASE EN LUGAR DE LOCALSTORAGE
     const cargarConfiguracionBD = async () => {
       const { data, error } = await supabase.from('configuracion').select('*');
       
@@ -35,7 +36,6 @@ export default function ConfiguracionPage() {
       }
 
       if (data && data.length > 0) {
-        // Convertimos el array de la BD en un objeto para leerlo fácil
         const configBD = {};
         data.forEach(item => { configBD[item.clave] = item.valor; });
 
@@ -49,9 +49,11 @@ export default function ConfiguracionPage() {
         if (configBD['TASA_EUR']) setTasaEUR(configBD['TASA_EUR']);
         if (configBD['TASA_USDT']) setTasaUSDT(configBD['TASA_USDT']);
         
+        // Cargar el código secreto desde la base de datos
+        if (configBD['codigo_admin']) setCodigoAdmin(configBD['codigo_admin']);
+        
         if (configBD['BOT_ACTIVO'] !== undefined) setBotActivo(configBD['BOT_ACTIVO'] === 'true');
 
-        // Si es API, actualiza las tasas automáticamente al cargar
         if ((configBD['TIPO_TASA'] || "api") === "api") {
           actualizarTasasDesdeAPI();
         }
@@ -93,7 +95,6 @@ export default function ConfiguracionPage() {
     e.preventDefault();
     setGuardando(true);
 
-    // Preparamos el array de objetos para Supabase
     const configuraciones = [
       { clave: 'TELEGRAM_BOT_TOKEN', valor: telegramToken },
       { clave: 'TELEGRAM_CHAT_ID', valor: telegramChatId },
@@ -105,9 +106,10 @@ export default function ConfiguracionPage() {
       { clave: 'TASA_USD', valor: tasaUSD },
       { clave: 'TASA_EUR', valor: tasaEUR },
       { clave: 'TASA_USDT', valor: tasaUSDT },
+      // Guardar el código secreto en Supabase
+      { clave: 'codigo_admin', valor: codigoAdmin },
     ];
 
-    // upsert: inserta o actualiza si la clave ya existe
     const { error } = await supabase.from('configuracion').upsert(configuraciones);
 
     setGuardando(false);
@@ -138,6 +140,27 @@ export default function ConfiguracionPage() {
 
       <form onSubmit={guardarConfiguracion} className="space-y-6">
         
+        {/* SEGURIDAD Y ACCESOS (NUEVO) */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center">
+            <Key className="w-5 h-5 mr-2 text-purple-600" /> Seguridad y Accesos
+          </h3>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Código de Administrador (Para nuevos registros):</label>
+            <input 
+              type="text" 
+              value={codigoAdmin} 
+              onChange={(e) => setCodigoAdmin(e.target.value)} 
+              className="w-full md:w-1/2 px-4 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500 font-mono text-gray-700" 
+              placeholder="Ej: TELECOM2026"
+              required 
+            />
+            <p className="text-xs text-gray-500 mt-2">
+              Este código secreto será exigido en la pantalla de inicio de sesión cuando un usuario intente crear una cuenta nueva.
+            </p>
+          </div>
+        </div>
+
         {/* FINANZAS */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-5">
           <div className="flex justify-between items-start">

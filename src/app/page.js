@@ -13,7 +13,7 @@ export default function Dashboard() {
   const [tipoTasa, setTipoTasa] = useState("api");
   const [cargandoTasa, setCargandoTasa] = useState(true);
 
-  
+
   useEffect(() => {
     const cargarTasa = async () => {
       setCargandoTasa(true);
