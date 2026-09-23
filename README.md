@@ -2,6 +2,7 @@
 Sistema integral de gestion de infraestructura de fibra optica, atencion al cliente automatizada con inteligencia artificial y monitoreo de metricas operativas en tiempo real.
 
 📸 Capturas de Pantalla
+<img width="1807" height="877" alt="image" src="https://github.com/user-attachments/assets/ef089eff-7935-4c69-b8c3-94817778e2c2" />
 
 
 🚀 Tecnologías y Herramientas Utilizadas
