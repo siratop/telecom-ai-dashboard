@@ -10,24 +10,41 @@ export default function AsesorIAPage() {
 
   
   const sugerenciasRapidas = [
-    "¿Cómo optimizar el tiempo de respuesta para clientes con intermitencia en Ciudad Guayana?",
-    "Sugiere estrategias de precios para planes de fibra óptica frente a la inflación.",
-    "¿Qué tipo de mensajes automatizados reducen la tasa de abandono en WhatsApp?",
+    "¿Como optimizar el tiempo de respuesta para clientes con intermitencia en Ciudad Guayana?",
+    "Sugiere estrategias de precios para planes de fibra óptica frente a la inflacion.",
+    "¿Que tipo de mensajes automatizados reducen la tasa de abandono en Telegram?",
     "Estrategia para promocionar planes en sectores con alta demanda y poca cobertura."
   ];
 
-  const enviarConsulta = (textoAPasar) => {
+  const enviarConsulta = async (textoAPasar) => {
     const textoFinal = textoAPasar || consulta;
     if (!textoFinal.trim()) return;
 
     setCargando(true);
     setRespuesta("");
 
-    
-    setTimeout(() => {
-      setRespuesta(`Análisis estratégico (Gemini AI) para el mercado venezolano: \n\nPara la consulta: "${textoFinal}", se recomienda implementar un filtro previo en n8n que detecte palabras clave sobre fallas eléctricas o de red. En el contexto de Ciudad Guayana, mantener plantillas de respuesta rápida que indiquen el estado de los nodos principales reduce hasta un 40% la saturación de los operadores humanos.`);
+    try {
+      
+      
+      const res = await fetch('/api/asesor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mensaje: textoFinal })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.respuesta) {
+        setRespuesta(data.respuesta);
+      } else {
+        setRespuesta("Error: El servicio de asesoría IA no pudo procesar la solicitud en este momento.");
+      }
+    } catch (error) {
+      console.error("Error al consultar la IA:", error);
+      setRespuesta("Error de conexión con el servidor de la API de Gemini.");
+    } finally {
       setCargando(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -39,9 +56,9 @@ export default function AsesorIAPage() {
         <p className="text-gray-500 mt-1">Utiliza el motor de Gemini para obtener recomendaciones de mejora continua adaptadas al sector de telecomunicaciones en Venezuela.</p>
       </div>
 
-      {/* Tarjetas de Consultas Rápidas Predefinidas */}
+
       <div className="mb-8">
-        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Consultas Rápidas Recomendadas</h3>
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Consultas Rapidas Recomendadas</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {sugerenciasRapidas.map((sug, index) => (
             <button
@@ -56,7 +73,7 @@ export default function AsesorIAPage() {
         </div>
       </div>
 
-      {/* Input de Consulta Libre */}
+
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8">
         <label className="block text-sm font-medium text-gray-700 mb-2">Escribe tu propia consulta al Asesor IA:</label>
         <div className="flex gap-3">
@@ -66,6 +83,7 @@ export default function AsesorIAPage() {
             placeholder="Ej: ¿Qué mejoras aplicar al flujo de n8n para ahorrar tokens?"
             value={consulta}
             onChange={(e) => setConsulta(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') enviarConsulta(); }}
           />
           <button
             onClick={() => enviarConsulta()}
@@ -77,7 +95,7 @@ export default function AsesorIAPage() {
         </div>
       </div>
 
-      {/* Resultado de la IA */}
+
       {(cargando || respuesta) && (
         <div className="bg-blue-900 text-white p-6 rounded-xl shadow-md">
           <div className="flex items-center mb-3">

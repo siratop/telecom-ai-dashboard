@@ -23,7 +23,7 @@ export async function GET() {
 
     return NextResponse.json(data);
   } catch (err) {
-    console.error("Excepción en la API de logs:", err);
+    console.error("Excepcion en la API de logs:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

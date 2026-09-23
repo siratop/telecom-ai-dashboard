@@ -11,31 +11,31 @@ export default function ManualUsuario() {
     {
       icono: <MessageCircle className="w-6 h-6 text-emerald-600" />,
       titulo: "2. Centros de Chat (Telegram)",
-      descripcion: "Pasarelas de comunicación CRM en vivo. Permite sincronizar mensajes entrantes, alternar entre respuestas automáticas del Bot IA o pausarlo para intervenir de forma manual como operador.",
+      descripcion: "Pasarelas de comunicacion CRM en vivo. Permite sincronizar mensajes entrantes, alternar entre respuestas automáticas del Bot IA o pausarlo para intervenir de forma manual como operador.",
       color: "bg-emerald-50 border-emerald-200"
     },
     {
       icono: <Map className="w-6 h-6 text-amber-600" />,
       titulo: "3. Mapa de Cobertura e Infraestructura",
-      descripcion: "Herramienta geoespacial interactiva para visualizar la red de fibra óptica. Permite trazar nuevos nodos, consultar coordenadas precisas y determinar radios de factibilidad técnica para clientes.",
+      descripcion: "Herramienta geoespacial interactiva para visualizar la red de fibra optica. Permite trazar nuevos nodos, consultar coordenadas precisas y determinar radios de factibilidad técnica para clientes.",
       color: "bg-amber-50 border-amber-200"
     },
     {
       icono: <History className="w-6 h-6 text-purple-600" />,
       titulo: "4. Historial y Auditoría",
-      descripcion: "Registro inmutable de todas las interacciones. Incluye filtros de búsqueda avanzada por intención o teléfono, limpieza segura de base de datos y exportación de reportes oficiales en formato PDF.",
+      descripcion: "Registro inmutable de todas las interacciones. Incluye filtros de búsqueda avanzada por intencion o telefono, limpieza segura de base de datos y exportación de reportes oficiales en formato PDF.",
       color: "bg-purple-50 border-purple-200"
     },
     {
       icono: <Settings className="w-6 h-6 text-slate-600" />,
       titulo: "5. Configuración del Sistema",
-      descripcion: "Panel de administración segura. Gestiona las credenciales de la API de Telegram (Token y Chat ID), enciende o apaga el sistema global, y ajusta la temperatura (creatividad) de las respuestas de la IA.",
+      descripcion: "Panel de administracion segura. Gestiona las credenciales de la API de Telegram (Token y Chat ID), enciende o apaga el sistema global, y ajusta la temperatura (creatividad) de las respuestas de la IA.",
       color: "bg-slate-50 border-slate-200"
     },
     {
       icono: <ShieldCheck className="w-6 h-6 text-indigo-600" />,
       titulo: "6. Monitor de Red y Webhooks",
-      descripcion: "Diagnóstico automatizado de la arquitectura del sistema. Verifica la latencia y disponibilidad de los flujos de n8n, la base de datos PostgreSQL y los servicios de Google AI Studio.",
+      descripcion: "Diagnostico automatizado de la arquitectura del sistema. Verifica la latencia y disponibilidad de los flujos de n8n, la base de datos PostgreSQL y los servicios de Google AI Studio.",
       color: "bg-indigo-50 border-indigo-200"
     }
   ];
@@ -49,7 +49,7 @@ export default function ManualUsuario() {
             Manual de Operación Corporativa
           </h2>
           <p className="text-gray-500 mt-2 text-sm max-w-2xl">
-            Documentación técnica y guía de usuario para el personal administrativo y operadores de red de Telecom AI. Este panel unifica la atención al cliente automatizada y la gestión de infraestructura.
+            Documentacion tecnica y guía de usuario para el personal administrativo y operadores de red de Telecom AI. Este panel unifica la atención al cliente automatizada y la gestión de infraestructura.
           </p>
         </div>
         <div className="px-4 py-2 bg-blue-100 text-blue-700 rounded-xl text-xs font-bold border border-blue-200 flex items-center shadow-sm">

@@ -43,7 +43,7 @@ export default function Sidebar() {
       router.push('/login'); 
       router.refresh();
     } else {
-      console.error("Error al cerrar sesión:", error.message);
+      console.error("Error al cerrar sesion:", error.message);
     }
   };
 
@@ -54,7 +54,7 @@ export default function Sidebar() {
     { name: 'Historial y Exportación', icon: History, path: '/historial' },
     { name: 'Monitor de Red', icon: Activity, path: '/monitor' },
     { name: 'Asesor IA', icon: BotMessageSquare, path: '/asesor' },
-    { name: 'Configuración', icon: Settings, path: '/configuracion' },
+    { name: 'Configuracion', icon: Settings, path: '/configuracion' },
   ];
 
   const infoItems = [
@@ -72,7 +72,7 @@ export default function Sidebar() {
       <div className="flex flex-col justify-between flex-1 overflow-y-auto">
         <nav className="space-y-1">
           <p className="px-3 text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">
-            Gestión Principal
+            Gestion Principal
           </p>
           {menuItems.map((item, index) => (
             <Link key={index} href={item.path} className="flex items-center px-3 py-2.5 text-gray-100 hover:bg-blue-800 rounded-lg text-sm font-medium transition-colors">
@@ -82,7 +82,7 @@ export default function Sidebar() {
           ))}
 
           <p className="px-3 text-xs font-semibold text-blue-400 uppercase tracking-wider mt-6 mb-2">
-            Documentación
+            Documentacion
           </p>
           {infoItems.map((item, index) => (
             <Link key={index} href={item.path} className="flex items-center px-3 py-2 text-gray-300 hover:text-white hover:bg-blue-800 rounded-lg text-sm transition-colors">
@@ -98,7 +98,7 @@ export default function Sidebar() {
             className="flex items-center px-3 py-2.5 text-red-300 hover:text-red-100 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors text-sm"
           >
             <LogOut className="w-4 h-4 mr-3" />
-            <span>Cerrar Sesión</span>
+            <span>Cerrar Sesion</span>
           </div>
         </div>
       </div>

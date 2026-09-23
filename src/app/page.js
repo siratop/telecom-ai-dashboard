@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { Activity, DollarSign, MessageSquare, CheckCircle, TrendingUp, ShieldAlert, Info, AlertOctagon, Search } from 'lucide-react';
+import { supabase } from '../lib/supabase'; 
 
 export default function Dashboard() {
   const [logs, setLogs] = useState([]);
   const [totalCost, setTotalCost] = useState(0);
   const [busqueda, setBusqueda] = useState("");
   
-  
+
   const [tasaActiva, setTasaActiva] = useState(42.50);
   const [tipoTasa, setTipoTasa] = useState("api");
   const [cargandoTasa, setCargandoTasa] = useState(true);
@@ -22,7 +23,6 @@ export default function Dashboard() {
       
       setTipoTasa(tipoGuardado);
 
-      
       if (tipoGuardado === 'api') {
         try {
           const res = await fetch('https://ve.dolarapi.com/v1/dolares/oficial');
@@ -41,7 +41,7 @@ export default function Dashboard() {
         }
       }
       
-      
+
       if (tasaGuardada) {
         setTasaActiva(parseFloat(tasaGuardada));
       }
@@ -51,20 +51,26 @@ export default function Dashboard() {
     cargarTasa();
   }, []);
 
-  // 2. Obtener los Logs del sistema
+
   useEffect(() => {
     async function fetchLogs() {
       try {
-        const response = await fetch('/api/logs');
-        const data = await response.json();
         
-        if (Array.isArray(data)) {
+        const { data, error } = await supabase
+          .from('chat_conversaciones')
+          .select('*')
+          .neq('chat_id', '896406306') 
+          .order('ultima_interaccion', { ascending: false });
+        
+        if (error) throw error;
+        
+        if (data) {
           setLogs(data);
-          const costoAcumulado = data.reduce((acc, log) => acc + Number(log.costo_estimado || 0), 0);
+          const costoAcumulado = data.reduce((acc, log) => acc + Number(log.costo_usd || 0), 0);
           setTotalCost(costoAcumulado);
         }
       } catch (err) {
-        console.error("Error de red:", err);
+        console.error("Error de red conectando a Supabase:", err);
       }
     }
     
@@ -74,45 +80,28 @@ export default function Dashboard() {
   }, []);
 
   const logsFiltrados = logs.filter(log => 
-    (log.telefono_cliente && log.telefono_cliente.includes(busqueda)) ||
-    (log.intencion_detectada && log.intencion_detectada.toLowerCase().includes(busqueda.toLowerCase()))
+    (log.nombre_usuario && log.nombre_usuario.toLowerCase().includes(busqueda.toLowerCase())) ||
+    (log.estado && log.estado.toLowerCase().includes(busqueda.toLowerCase())) ||
+    (log.chat_id && log.chat_id.includes(busqueda))
   );
 
   const ventasProtegidasEstimadas = logs.reduce((acc, log) => {
-    const intencion = log.intencion_detectada?.toLowerCase() || "";
-    if (intencion.includes("plan") || intencion.includes("ventas")) return acc + 30; 
-    if (intencion.includes("soporte") || intencion.includes("falla")) return acc + 15; 
-    return acc + 10; 
+    if (log.estado === "exitoso") return acc + 30; 
+    if (log.estado === "activo") return acc + 10;  
+    return acc; 
   }, 0);
 
-  const interaccionesFallidas = logs.filter(log => !log.completion_tokens || log.completion_tokens === 0 || log.intencion_detectada === "Desconocida").length;
+  const interaccionesFallidas = logs.filter(log => log.estado === "perdido").length;
+  const interaccionesExitosas = logs.filter(log => log.estado === "exitoso").length;
 
   const generarAnalisisDinamico = () => {
     if (logs.length === 0) return "Esperando interacciones para generar análisis operativo...";
 
-    const conteo = logs.reduce((acc, log) => {
-      const int = log.intencion_detectada || "General";
-      acc[int] = (acc[int] || 0) + 1;
-      return acc;
-    }, {});
-
-    let intencionPrincipal = "General";
-    let maxConteo = 0;
-    
-    for (const [key, val] of Object.entries(conteo)) {
-      if (val > maxConteo && key !== "Desconocida") {
-        maxConteo = val;
-        intencionPrincipal = key.toLowerCase();
-      }
-    }
-
     let enfoqueEstrategico = "";
-    if (intencionPrincipal.includes("plan") || intencionPrincipal.includes("venta")) {
-      enfoqueEstrategico = "El volumen principal de consultas indica un alto interés en nuevas contrataciones, maximizando la captación de prospectos de manera automática y protegiendo la facturación de planes de red (valorados hasta en $30).";
-    } else if (intencionPrincipal.includes("soporte") || intencionPrincipal.includes("falla")) {
-      enfoqueEstrategico = "La mayoría de las interacciones corresponden a soporte técnico. La IA está filtrando exitosamente reportes, descongestionando el Call Center de Nivel 1 y asegurando la retención de clientes molestos mediante atención inmediata.";
+    if (interaccionesExitosas >= interaccionesFallidas) {
+      enfoqueEstrategico = "El volumen de consultas muestra una excelente retención. El bot está filtrando exitosamente solicitudes, asegurando la captación de prospectos de manera automática y protegiendo la facturación (valorada hasta en $30 por cliente retenido).";
     } else {
-      enfoqueEstrategico = "El sistema está manejando un flujo balanceado de consultas generales. Esto automatiza respuestas repetitivas, reduce el tiempo de espera del cliente y permite a los operadores humanos enfocarse en casos críticos.";
+      enfoqueEstrategico = "Se detecta un volumen considerable de abandonos (clientes perdidos). El sistema de IA está filtrando intenciones iniciales, pero se recomienda a Gerencia revisar los historiales para optimizar las respuestas automáticas.";
     }
 
     return `Análisis Gerencial Operativo: Con un costo marginal de apenas $${totalCost.toFixed(4)} (Bs. ${(totalCost * tasaActiva).toFixed(2)}) en IA, el sistema ha gestionado ${logs.length} interacciones. ${enfoqueEstrategico}`;
@@ -123,7 +112,7 @@ export default function Dashboard() {
       <header className="mb-8 flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Métricas de Rendimiento - Automatización IA</h1>
-          <p className="text-gray-500 mt-1">Monitoreo en tiempo real del flujo n8n, Google Gemini y análisis de costo-beneficio operativo.</p>
+          <p className="text-gray-500 mt-1">Monitoreo en tiempo real del flujo de Telegram, Google Gemini y análisis de costo-beneficio operativo.</p>
         </div>
         <div className="text-right">
           <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">
@@ -143,7 +132,7 @@ export default function Dashboard() {
             <p className="text-xs text-gray-500 font-semibold">Consultas Exitosas</p>
             <MessageSquare className="w-4 h-4 text-blue-400" />
           </div>
-          <h3 className="text-2xl font-bold text-gray-800">{logs.length - interaccionesFallidas}</h3>
+          <h3 className="text-2xl font-bold text-gray-800">{interaccionesExitosas}</h3>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-5 border-l-4 border-red-500 flex flex-col justify-between group relative">
@@ -201,7 +190,7 @@ export default function Dashboard() {
             <Search className="w-4 h-4 text-gray-400 mr-2" />
             <input 
               type="text" 
-              placeholder="Buscar por teléfono o intención..." 
+              placeholder="Buscar por cliente o estado..." 
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               className="w-full outline-none text-sm text-gray-700"
@@ -214,9 +203,9 @@ export default function Dashboard() {
               <tr className="bg-white text-gray-500 text-[10px] uppercase border-b border-gray-100">
                 <th className="p-4 font-semibold">Fecha</th>
                 <th className="p-4 font-semibold">Cliente</th>
-                <th className="p-4 font-semibold">Intención Detectada</th>
-                <th className="p-4 font-semibold">Tokens (P+C)</th>
-                <th className="p-4 font-semibold">Costo Est. ($)</th>
+                <th className="p-4 font-semibold">Estado de Conversación</th>
+                <th className="p-4 font-semibold text-center">Tokens IA</th>
+                <th className="p-4 font-semibold text-center">Costo Est. ($)</th>
               </tr>
             </thead>
             <tbody className="text-sm text-gray-700 divide-y divide-gray-50">
@@ -224,18 +213,23 @@ export default function Dashboard() {
                 <tr><td colSpan="5" className="p-8 text-center text-gray-400 text-sm">No se encontraron interacciones con ese filtro.</td></tr>
               ) : (
                 logsFiltrados.map((log, index) => {
-                  const esFalla = !log.completion_tokens || log.completion_tokens === 0;
+                  const esFalla = log.estado === 'perdido';
+                  const esExito = log.estado === 'exitoso';
+                  
                   return (
-                    <tr key={log.id || index} className={esFalla ? 'bg-red-50/30' : 'hover:bg-gray-50/80'}>
-                      <td className="p-4 text-xs text-gray-500">{new Date(log.fecha || log.created_at).toLocaleString('es-VE')}</td>
-                      <td className="p-4 font-medium text-gray-800">{log.telefono_cliente}</td>
+                    <tr key={log.chat_id || index} className={esFalla ? 'bg-red-50/30' : 'hover:bg-gray-50/80'}>
+                      <td className="p-4 text-xs text-gray-500">{new Date(log.ultima_interaccion).toLocaleString('es-VE')}</td>
+                      <td className="p-4 font-medium text-gray-800">
+                        {log.nombre_usuario}
+                        <div className="text-[10px] text-gray-400 font-mono mt-0.5">ID: {log.chat_id}</div>
+                      </td>
                       <td className="p-4">
-                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${esFalla ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700 border border-blue-100'}`}>
-                          {esFalla ? 'Tiempo Agotado' : log.intencion_detectada}
+                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${esFalla ? 'bg-red-100 text-red-700' : esExito ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-blue-50 text-blue-700 border border-blue-100'}`}>
+                          {log.estado}
                         </span>
                       </td>
-                      <td className="p-4 text-gray-500 text-xs font-mono">{log.prompt_tokens} + {log.completion_tokens}</td>
-                      <td className="p-4 text-purple-600 font-mono font-medium text-xs">${log.costo_estimado}</td>
+                      <td className="p-4 text-gray-500 text-xs font-mono text-center">{log.tokens_usados || 0}</td>
+                      <td className="p-4 text-purple-600 font-mono font-medium text-xs text-center">${Number(log.costo_usd || 0).toFixed(4)}</td>
                     </tr>
                   );
                 })

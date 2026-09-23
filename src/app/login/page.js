@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { ShieldCheck, Lock, Mail, Loader2, Key, UserPlus, LogIn } from 'lucide-react';
 
-// Recuerda idealmente mover estas claves a un archivo .env.local
+
 const supabaseUrl = 'https://symfbpwmwuedqatdwlrv.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5bWZicHdtd3VlZHFhdGR3bHJ2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODk3MTAzOCwiZXhwIjoyMTA0NTQ3MDM4fQ.W9Fn-roMcTQ78PdV-LhOEAL2HoM8lpUwsGlD6EI4YEk';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -27,23 +27,23 @@ export default function LoginPage() {
     setExito("");
 
     if (isLogin) {
-      // LÓGICA DE INICIO DE SESIÓN
+      
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
-        setError("Credenciales inválidas. Verifica tu correo y contraseña.");
+        setError("Credenciales invalidas. Verifica tu correo y contraseña.");
         setCargando(false);
       } else {
         router.push('/'); 
         router.refresh();
       }
     } else {
-      // LÓGICA DE CREACIÓN DE CUENTA (REGISTRO)
+     
       
-      // 1. Consultamos el código secreto a la base de datos
+     
       const { data: configData, error: configError } = await supabase
         .from('configuracion')
         .select('valor')
@@ -56,7 +56,7 @@ export default function LoginPage() {
         return;
       }
 
-      // 2. Comparamos el código ingresado con el de Supabase
+      
       if (codigoAdmin !== configData.valor) {
         setError("Código de administrador incorrecto. Acceso denegado.");
         setCargando(false);
@@ -69,7 +69,7 @@ export default function LoginPage() {
         return;
       }
 
-      // 3. Creamos el usuario si el código coincide
+      
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -78,7 +78,7 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        setExito("¡Cuenta creada con éxito! Ya puedes iniciar sesión.");
+        setExito("¡Cuenta creada con exito! Ya puedes iniciar sesion.");
         setIsLogin(true);
         setPassword("");
         setCodigoAdmin("");
@@ -115,7 +115,7 @@ export default function LoginPage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Correo Electrónico</label>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Correo Electronico</label>
             <div className="relative">
               <Mail className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -146,7 +146,7 @@ export default function LoginPage() {
 
           {!isLogin && (
             <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">
-              <label className="text-xs font-bold text-purple-600 uppercase tracking-wider">Código de Administrador</label>
+              <label className="text-xs font-bold text-purple-600 uppercase tracking-wider">Codigo de Administrador</label>
               <div className="relative">
                 <Key className="w-5 h-5 text-purple-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -169,7 +169,7 @@ export default function LoginPage() {
             {cargando ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : isLogin ? (
-              <><LogIn className="w-5 h-5 mr-2"/> Iniciar Sesión</>
+              <><LogIn className="w-5 h-5 mr-2"/> Iniciar Sesion</>
             ) : (
               <><UserPlus className="w-5 h-5 mr-2"/> Crear Cuenta</>
             )}

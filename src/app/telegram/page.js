@@ -1,12 +1,18 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, RefreshCw, AlertCircle, CheckCircle, Trash2, MessageSquareOff, Search, Bot, Shield, User } from 'lucide-react';
-// 1. Importamos el cliente de Supabase
-import { supabase } from '../../lib/supabase'; // Ajusta la ruta si es diferente en tu proyecto
+import { supabase } from '../../lib/supabase';
 
-export default function TelegramChatPage() {
-  const [isMounted, setIsMounted] = useState(false);
+// Sacamos la función fuera del componente para que esté disponible globalmente
+const calcularUsoIA = (textoEntrada, textoSalida) => {
+  const caracteresTotales = textoEntrada.length + textoSalida.length;
+  const tokensEstimados = Math.ceil(caracteresTotales / 4);
+  const costoEstimado = (tokensEstimados / 1000) * 0.0001; 
+  return { tokens: tokensEstimados, costo: costoEstimado };
+};
+
+export default function TelegramChatPage() { 
   const [conversaciones, setConversaciones] = useState({});
   const [chatActivoId, setChatActivoId] = useState("");
   const [mensajeInput, setMensajeInput] = useState("");
@@ -15,20 +21,35 @@ export default function TelegramChatPage() {
   const [sincronizando, setSincronizando] = useState(false);
   const [modoIAActivo, setModoIAActivo] = useState(true);
 
-  const chatContainerRef = useRef(null);
-  
-  // ID designado para pruebas y gerencia
-  const ADMIN_CHAT_ID = "896406306";
+  const [chatsEscalados, setChatsEscalados] = useState([]);
 
-  // 2. Cargar historial desde PostgreSQL al inicio
-  useEffect(() => {
-    setIsMounted(true);
-    cargarChatsDesdeBD();
+  const chatContainerRef = useRef(null); 
+  const ADMIN_CHAT_ID = "896406306";
+  
+  const offsetRef = useRef(0);
+  const isFetchingRef = useRef(false);
+
+  const procesarDatosBD = useCallback((convs, msgs) => {
+    const newState = {};
+    convs.forEach(c => {
+      newState[c.chat_id] = { nombreUsuario: c.nombre_usuario, mensajes: [] };
+    });
+    
+    msgs.forEach(m => {
+      if (newState[m.chat_id]) {
+        newState[m.chat_id].mensajes.push({ id: m.id, emisor: m.emisor, texto: m.texto, hora: m.hora });
+      }
+    });
+
+    setConversaciones(newState);
+    const ids = Object.keys(newState);
+    if (ids.length > 0) {
+      setChatActivoId(prev => prev || ids[0]);
+    }
   }, []);
 
-  const cargarChatsDesdeBD = async () => {
-    try {
-      // Traemos las conversaciones y los mensajes ordenados por fecha
+  const cargarChatsDesdeBD = useCallback(async () => {
+    try { 
       const { data: convs, error: errC } = await supabase.from('chat_conversaciones').select('*');
       const { data: msgs, error: errM } = await supabase.from('chat_mensajes').select('*').order('created_at', { ascending: true });
 
@@ -37,7 +58,7 @@ export default function TelegramChatPage() {
         return;
       }
 
-      // Si la base de datos está completamente vacía, creamos el chat de gerencia por defecto
+      
       if (convs.length === 0) {
         await supabase.from('chat_conversaciones').insert([{ chat_id: ADMIN_CHAT_ID, nombre_usuario: "Francisco (Gerencia)" }]);
         await supabase.from('chat_mensajes').insert([{
@@ -46,30 +67,25 @@ export default function TelegramChatPage() {
           texto: "Prueba de inicio de sistema. Conectado a PostgreSQL.",
           hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }]);
-        cargarChatsDesdeBD(); // Recargamos para que lo muestre
+        
+        const { data: newConvs } = await supabase.from('chat_conversaciones').select('*');
+        const { data: newMsgs } = await supabase.from('chat_mensajes').select('*').order('created_at', { ascending: true });
+        if (newConvs && newMsgs) procesarDatosBD(newConvs, newMsgs);
         return;
       }
 
-      // Reconstruimos el objeto para la interfaz
-      const newState = {};
-      convs.forEach(c => {
-        newState[c.chat_id] = { nombreUsuario: c.nombre_usuario, mensajes: [] };
-      });
-      
-      msgs.forEach(m => {
-        if (newState[m.chat_id]) {
-          newState[m.chat_id].mensajes.push({ id: m.id, emisor: m.emisor, texto: m.texto, hora: m.hora });
-        }
-      });
-
-      setConversaciones(newState);
-      const ids = Object.keys(newState);
-      if (ids.length > 0 && !chatActivoId) setChatActivoId(ids[0]);
-
+      procesarDatosBD(convs, msgs);
     } catch (error) {
       console.error("Error general en carga de chats", error);
     }
-  };
+  }, [procesarDatosBD]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      cargarChatsDesdeBD();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [cargarChatsDesdeBD]);
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -77,74 +93,117 @@ export default function TelegramChatPage() {
     }
   }, [chatActivoId, conversaciones]);
 
-  const obtenerRespuestaIA = (textoUsuario) => {
-    const texto = textoUsuario.toLowerCase();
-    if (texto.includes('hola') || texto.includes('saludos') || texto.includes('buenos')) {
-      return "¡Hola! Bienvenido a Telecom AI Puerto Ordaz. ¿En qué podemos ayudarte hoy? (Puedes consultar planes, cobertura o soporte técnico).";
-    }
-    if (texto.includes('cobertura') || texto.includes('alta vista') || texto.includes('unare') || texto.includes('zona')) {
-      return "📍 Tenemos cobertura activa de fibra óptica en Alta Vista, Unare, Los Olivos y Centro de Puerto Ordaz. ¿Deseas verificar factibilidad para tu dirección exacta?";
-    }
-    if (texto.includes('planes') || texto.includes('precio') || texto.includes('costo') || texto.includes('megas')) {
-      return "📊 Contamos con planes de fibra simétrica: 50 Mbps ($20), 100 Mbps ($35) y 300 Mbps ($75). Todos incluyen instalación inmediata.";
-    }
-    if (texto.includes('soporte') || texto.includes('lento') || texto.includes('falla') || texto.includes('conexion')) {
-      return "🛠️ Hemos registrado tu consulta de soporte técnico. Un operador humano revisará el estado de tu nodo OLT en breve.";
-    }
-    return "🤖 Entendido. Su solicitud ha sido procesada por Gemini AI. Un especialista se comunicará con usted de ser necesario.";
-  };
-
-  const nuevrasConvObjVerificacion = (mensajesArray, texto) => {
-    return mensajesArray.some(m => m.texto === texto && m.emisor === 'cliente');
-  };
-
-  // 3. Sincronización guardando en Supabase
-  const ejecutarSincronizacion = async (esAutomatico = false) => {
-    // Para seguridad, el token sí se lee localmente o de las variables de entorno
+  const ejecutarSincronizacion = useCallback(async (esAutomatico = false) => {
     let token = "";
+    let telefonoConfig = "+58 424-9309876"; // Número por defecto
     if (typeof window !== 'undefined') {
       token = localStorage.getItem('TELEGRAM_BOT_TOKEN') || process.env.NEXT_PUBLIC_TELEGRAM_TOKEN;
+      telefonoConfig = localStorage.getItem('TELEFONO_SOPORTE') || telefonoConfig;
     }
-    if (!token) return;
+    
+    if (!token || isFetchingRef.current) return;
 
+    isFetchingRef.current = true;
     if (!esAutomatico) setSincronizando(true);
+    
     try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?allowed_updates=["message"]`);
+      const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${offsetRef.current}&allowed_updates=["message"]`);
       const data = await res.json();
 
-      if (data.ok && data.result && data.result.length > 0) {
-        let nuevasConv = { ...conversaciones };
+      if (data.ok && data.result && data.result.length > 0) { 
         let contadorNuevos = 0;
-        let ultimoChatId = chatActivoId;
+        let ultimoChatId = null;
+        let highestUpdateId = offsetRef.current;
+
+        const nuevosMensajesPorChat = {};
+        const nuevasConversacionesInfo = {};
 
         for (const update of data.result) {
-          const mensajeObj = update.message || update.edited_message;
-          if (mensajeObj && mensajeObj.text) {
-            const chatId = String(mensajeObj.chat.id);
-            const nombre = mensajeObj.from.username ? `@${mensajeObj.from.username}` : (mensajeObj.from.first_name || "Usuario");
-            const textoMsg = mensajeObj.text;
-            const horaMsg = new Date(mensajeObj.date * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          if (update.update_id >= highestUpdateId) {
+            highestUpdateId = update.update_id + 1; 
+          }
 
-            if (!nuevasConv[chatId]) {
-              nuevasConv[chatId] = {
-                nombreUsuario: chatId === ADMIN_CHAT_ID ? "Francisco (Gerencia)" : `${nombre} (${chatId})`,
-                mensajes: []
-              };
-              // Crear chat en la BD
-              await supabase.from('chat_conversaciones').upsert({ chat_id: chatId, nombre_usuario: nuevasConv[chatId].nombreUsuario });
+          const mensajeObj = update.message || update.edited_message;
+          if (!mensajeObj || !mensajeObj.text) continue;
+
+          const chatId = String(mensajeObj.chat.id);
+          const nombre = mensajeObj.from.username ? `@${mensajeObj.from.username}` : (mensajeObj.from.first_name || "Usuario");
+          const textoMsg = mensajeObj.text;
+          const horaMsg = new Date(mensajeObj.date * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          const chatState = conversaciones[chatId];
+          let yaExisteLocal = false;
+          if (chatState) {
+            const ultimos = chatState.mensajes.slice(-10);
+            yaExisteLocal = ultimos.some(m => m.texto === textoMsg && m.emisor === 'cliente');
+          }
+
+          if (!nuevosMensajesPorChat[chatId]) nuevosMensajesPorChat[chatId] = [];
+          const existeEnAcumulador = nuevosMensajesPorChat[chatId].some(m => m.id === update.update_id || m.texto === textoMsg);
+
+          if (!yaExisteLocal && !existeEnAcumulador) {
+            if (!chatState && !nuevasConversacionesInfo[chatId]) {
+              const nombreUsuario = chatId === ADMIN_CHAT_ID ? "Francisco (Gerencia)" : `${nombre} (${chatId})`;
+              nuevasConversacionesInfo[chatId] = nombreUsuario;
+              await supabase.from('chat_conversaciones').upsert({ chat_id: chatId, nombre_usuario: nombreUsuario });
             }
 
-            const yaExiste = nuevrasConvObjVerificacion(nuevasConv[chatId].mensajes, textoMsg);
-            
-            if (!yaExiste) {
-              // Guardar mensaje de cliente en BD
-              await supabase.from('chat_mensajes').insert({ chat_id: chatId, emisor: "cliente", texto: textoMsg, hora: horaMsg });
-              
-              nuevasConv[chatId].mensajes.push({ id: update.update_id, emisor: "cliente", texto: textoMsg, hora: horaMsg });
-              contadorNuevos++;
+            await supabase.from('chat_mensajes').insert({ chat_id: chatId, emisor: "cliente", texto: textoMsg, hora: horaMsg });
+            nuevosMensajesPorChat[chatId].push({ id: update.update_id, emisor: "cliente", texto: textoMsg, hora: horaMsg });
+            contadorNuevos++;
+            ultimoChatId = chatId;
 
-              if (modoIAActivo) {
-                const respuestaAuto = obtenerRespuestaIA(textoMsg);
+            if (modoIAActivo) {
+              let respuestaAuto = null;
+              let nuevoEstado = 'activo';
+              let intencionCierre = false;
+
+              if (chatsEscalados.includes(chatId)) {
+                // El usuario ya fue transferido a ti. El bot se queda callado.
+                respuestaAuto = null; 
+              } else {
+                const texto = textoMsg.toLowerCase();
+                
+                // 1. Detección de Cierre Exitoso ("Aún interesado / lo pensaré")
+                if (texto.includes('gracias') || texto.includes('lo pensare') || texto.includes('mas tarde') || texto.includes('interesado')) {
+                  respuestaAuto = "¡De nada! Estaremos aquí cuando nos necesites. Que tengas una excelente tarde. (Chat cerrado)";
+                  nuevoEstado = 'exitoso';
+                  intencionCierre = true;
+                } 
+                // 2. Detección de Pérdida / Rechazo ("No me interesa / cerrar")
+                else if (texto === 'no' || texto.includes('no quiero') || texto.includes('cerrar') || texto.includes('cancelar')) {
+                  respuestaAuto = "Entendido. Hemos cerrado tu solicitud. ¡Gracias por contactarnos!";
+                  nuevoEstado = 'perdido';
+                  intencionCierre = true;
+                }
+                // 3. Flujo normal de consultas
+                else if (texto === 'hola' || texto === 'saludos' || texto.includes('buenos dias') || texto.includes('buenas')) {
+                  respuestaAuto = "¡Hola! Bienvenido a Telecom AI Puerto Ordaz. ¿En qué podemos ayudarte hoy? (Puedes consultar planes o cobertura).";
+                } 
+                else if (texto.includes('cobertura') || texto.includes('alta vista') || texto.includes('unare')) {
+                  respuestaAuto = "📍 Tenemos cobertura activa de fibra optica en Alta Vista, Unare, Los Olivos y Centro. ¿Deseas verificar factibilidad para tu direccion exacta?";
+                } 
+                else if ((texto.includes('precio') || texto.includes('costo') || texto.includes('planes')) && !texto.includes('mejor') && !texto.includes('cual')) {
+                  respuestaAuto = "📊 Contamos con planes de fibra simétrica: 50 Mbps ($20), 100 Mbps ($35) y 300 Mbps ($75). Todos incluyen instalación inmediata.";
+                } 
+                // 4. Escalamiento a Humano
+                else {
+                  setChatsEscalados(prev => [...prev, chatId]);
+                  
+                  respuestaAuto = `🤖 Entendido. Para asesorarte mejor con esa consulta, te he transferido con un operador humano. Por favor espera un momento en línea o escríbenos a nuestro WhatsApp: ${telefonoConfig}.`;
+
+                  const mensajeAviso = `🚨 *NUEVO REQUERIMIENTO DE SOPORTE* 🚨\n\nEl usuario *${nombre}* requiere atención humana.\n\n💬 *Pregunta:* "${textoMsg}"\n\nVe al panel de Dashboard Telecom para responderle.`;
+                  
+                  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: ADMIN_CHAT_ID, text: mensajeAviso, parse_mode: 'Markdown' })
+                  });
+                }
+              }
+
+              if (respuestaAuto) {
+                // Enviar mensaje a Telegram
                 await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -152,24 +211,51 @@ export default function TelegramChatPage() {
                 });
 
                 const horaMsgBot = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                // Guardar respuesta IA en BD
+                
+                // Guardar mensaje en Base de Datos
                 await supabase.from('chat_mensajes').insert({ chat_id: chatId, emisor: "bot", texto: respuestaAuto, hora: horaMsgBot });
+                nuevosMensajesPorChat[chatId].push({ id: Date.now() + Math.random(), emisor: "bot", texto: respuestaAuto, hora: horaMsgBot });
 
-                nuevasConv[chatId].mensajes.push({ id: Date.now() + Math.random(), emisor: "bot", texto: respuestaAuto, hora: horaMsgBot });
+                // Calcular tokens y costos
+                const { tokens, costo } = calcularUsoIA(textoMsg, respuestaAuto);
+                
+                // Actualizar métricas en la tabla chat_conversaciones
+                const { data: convActual } = await supabase.from('chat_conversaciones').select('tokens_usados, costo_usd, estado').eq('chat_id', chatId).single();
+                
+                await supabase.from('chat_conversaciones').update({
+                  estado: intencionCierre ? nuevoEstado : (convActual?.estado || 'activo'),
+                  tokens_usados: (convActual?.tokens_usados || 0) + tokens,
+                  costo_usd: (convActual?.costo_usd || 0) + costo,
+                  ultima_interaccion: new Date().toISOString()
+                }).eq('chat_id', chatId);
               }
-            }
-            ultimoChatId = chatId;
+            } 
           }
         }
 
-        if (contadorNuevos > 0) {
-          setConversaciones(nuevasConv);
-          if (ultimoChatId && !chatActivoId) setChatActivoId(ultimoChatId);
-        }
+        offsetRef.current = highestUpdateId;
 
-        if (!esAutomatico) {
-          if (contadorNuevos > 0) alert(`✅ ¡Se sincronizaron ${contadorNuevos} mensaje(s) nuevo(s)!`);
-          else alert("ℹ️ Conexión exitosa. No hay mensajes nuevos en cola.");
+        if (contadorNuevos > 0) {
+          setConversaciones(prevConv => {
+            const updated = { ...prevConv };
+            for (const cId in nuevosMensajesPorChat) {
+              if (!updated[cId]) {
+                updated[cId] = { nombreUsuario: nuevasConversacionesInfo[cId] || `Usuario ${cId}`, mensajes: [] };
+              }
+              updated[cId] = {
+                ...updated[cId],
+                mensajes: [...updated[cId].mensajes, ...nuevosMensajesPorChat[cId]]
+              };
+            }
+            return updated;
+          });
+
+          if (!esAutomatico) {
+            setTimeout(() => alert(`✅ ¡Se sincronizaron ${contadorNuevos} mensaje(s) nuevo(s)!`), 100);
+          }
+          setChatActivoId(prev => prev || ultimoChatId);
+        } else {
+          if (!esAutomatico) alert("ℹ️ Conexión exitosa. No hay mensajes nuevos en cola.");
         }
       } else if (!esAutomatico) {
         alert("ℹ️ El bot está conectado, pero no hay mensajes pendientes.");
@@ -178,9 +264,10 @@ export default function TelegramChatPage() {
       console.error("Error al sincronizar:", error);
       if (!esAutomatico) alert("Error de red al conectar con la API de Telegram.");
     } finally {
+      isFetchingRef.current = false;
       if (!esAutomatico) setSincronizando(false);
     }
-  };
+  }, [modoIAActivo, conversaciones, chatsEscalados]);
 
   useEffect(() => {
     if (!modoIAActivo) return;
@@ -188,9 +275,8 @@ export default function TelegramChatPage() {
       ejecutarSincronizacion(true);
     }, 4000);
     return () => clearInterval(interval);
-  }, [modoIAActivo, conversaciones, chatActivoId]);
-
-  // 4. Enviar mensaje manual y guardar en Supabase
+  }, [modoIAActivo, ejecutarSincronizacion]);
+ 
   const enviarMensaje = async (e) => {
     e.preventDefault();
     if (!mensajeInput.trim() || !chatActivoId) return;
@@ -218,8 +304,7 @@ export default function TelegramChatPage() {
       const data = await res.json();
       if (data.ok) {
         const horaAdmin = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        
-        // Insertamos en PostgreSQL
+         
         await supabase.from('chat_mensajes').insert({
           chat_id: chatActivoId,
           emisor: "admin",
@@ -227,18 +312,24 @@ export default function TelegramChatPage() {
           hora: horaAdmin
         });
 
+        // Actualizamos última interacción al responder como admin
+        await supabase.from('chat_conversaciones').update({
+          ultima_interaccion: new Date().toISOString()
+        }).eq('chat_id', chatActivoId);
+
         const nuevoMensaje = { id: Date.now(), emisor: "admin", texto: mensajeInput, hora: horaAdmin };
 
-        const chatActual = conversaciones[chatActivoId] || { nombreUsuario: `Usuario ${chatActivoId}`, mensajes: [] };
-        const actualizado = {
-          ...conversaciones,
-          [chatActivoId]: {
-            ...chatActual,
-            mensajes: [...chatActual.mensajes, nuevoMensaje]
-          }
-        };
-
-        setConversaciones(actualizado);
+        setConversaciones(prev => {
+          const chatActual = prev[chatActivoId] || { nombreUsuario: `Usuario ${chatActivoId}`, mensajes: [] };
+          return {
+            ...prev,
+            [chatActivoId]: {
+              ...chatActual,
+              mensajes: [...chatActual.mensajes, nuevoMensaje]
+            }
+          };
+        });
+        
         setMensajeInput("");
       } else {
         alert(`❌ Error al enviar: ${data.description}`);
@@ -249,14 +340,13 @@ export default function TelegramChatPage() {
       setEnviando(false);
     }
   };
-
-  // 5. Limpieza de BD
+ 
   const limpiarHistorial = async () => {
-    if (window.confirm("¿Deseas limpiar TODAS las conversaciones del chat en la Base de Datos? (Irreversible)")) {
-      // Elimina todas las conversaciones (Cascada borra los mensajes)
+    if (window.confirm("¿Deseas limpiar TODAS las conversaciones del chat en la Base de Datos? (Irreversible)")) { 
       await supabase.from('chat_conversaciones').delete().neq('chat_id', '0');
       setConversaciones({});
       setChatActivoId("");
+      setChatsEscalados([]); 
     }
   };
 
@@ -264,18 +354,20 @@ export default function TelegramChatPage() {
     if (window.confirm("¿Seguro que deseas eliminar esta conversación de la Base de Datos?")) {
       await supabase.from('chat_conversaciones').delete().eq('chat_id', idAEliminar);
       
-      const nuevasConv = { ...conversaciones };
-      delete nuevasConv[idAEliminar];
-      setConversaciones(nuevasConv);
-      
-      if (chatActivoId === idAEliminar) {
-        const restantes = Object.keys(nuevasConv);
-        setChatActivoId(restantes.length > 0 ? restantes[0] : "");
-      }
+      setConversaciones(prev => {
+        const nuevasConv = { ...prev };
+        delete nuevasConv[idAEliminar];
+        
+        if (chatActivoId === idAEliminar) {
+          const restantes = Object.keys(nuevasConv);
+          setChatActivoId(restantes.length > 0 ? restantes[0] : "");
+        }
+        return nuevasConv;
+      });
+      setChatsEscalados(prev => prev.filter(id => id !== idAEliminar));
     }
   };
 
-  if (!isMounted) return null;
 
   const listaIds = Object.keys(conversaciones).filter(id => {
     const chat = conversaciones[id];
@@ -286,11 +378,14 @@ export default function TelegramChatPage() {
   const chatAdminIds = listaIds.filter(id => id === ADMIN_CHAT_ID);
   const chatClientIds = listaIds.filter(id => id !== ADMIN_CHAT_ID);
   const chatActivo = conversaciones[chatActivoId];
+  
+  const estaEscaladoActual = chatsEscalados.includes(chatActivoId);
 
   const renderChatItem = (id, esAdmin = false) => {
     const chat = conversaciones[id];
     const ultimoMsg = chat.mensajes[chat.mensajes.length - 1];
     const estaSeleccionado = chatActivoId === id;
+    const requiereAtencion = chatsEscalados.includes(id);
 
     return (
       <div 
@@ -307,9 +402,12 @@ export default function TelegramChatPage() {
             {ultimoMsg?.hora}
           </span>
         </div>
-        <p className="text-xs text-gray-500 truncate">
-          {ultimoMsg?.emisor === 'admin' ? 'Tú: ' : ultimoMsg?.emisor === 'bot' ? 'IA: ' : ''}{ultimoMsg?.texto || 'Sin mensajes'}
-        </p>
+        <div className="flex justify-between items-center mt-1">
+          <p className="text-xs text-gray-500 truncate w-3/4">
+            {ultimoMsg?.emisor === 'admin' ? 'Tú: ' : ultimoMsg?.emisor === 'bot' ? 'IA: ' : ''}{ultimoMsg?.texto || 'Sin mensajes'}
+          </p>
+          {requiereAtencion && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>}
+        </div>
       </div>
     );
   };
@@ -421,17 +519,22 @@ export default function TelegramChatPage() {
                 </div>
                 
                 <div className="flex items-center gap-2">
+                  {estaEscaladoActual && (
+                    <span className="px-2.5 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-bold uppercase tracking-wide animate-pulse border border-red-200">
+                      Requiere Atención Humana
+                    </span>
+                  )}
                   <button 
                     onClick={() => eliminarChatIndividual(chatActivoId)}
-                    title="Eliminar esta conversación"
+                    title="Eliminar y reiniciar chat"
                     className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors mr-2"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
 
-                  <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center ${modoIAActivo ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                    {modoIAActivo ? <Bot className="w-3 h-3 mr-1"/> : <User className="w-3 h-3 mr-1"/>}
-                    {modoIAActivo ? 'Bot Asistente Activo' : 'Modo Manual'}
+                  <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center ${modoIAActivo && !estaEscaladoActual ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {modoIAActivo && !estaEscaladoActual ? <Bot className="w-3 h-3 mr-1"/> : <User className="w-3 h-3 mr-1"/>}
+                    {modoIAActivo && !estaEscaladoActual ? 'Bot Asistente Activo' : 'Modo Manual'}
                   </span>
                   <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-[11px] font-semibold flex items-center">
                     <CheckCircle className="w-3.5 h-3.5 mr-1" /> En línea
@@ -488,7 +591,7 @@ export default function TelegramChatPage() {
               <form onSubmit={enviarMensaje} className="p-4 bg-white rounded-b-2xl flex gap-3 border-t border-gray-100">
                 <input 
                   type="text" 
-                  placeholder={modoIAActivo ? "El bot está respondiendo. Escribe para intervenir manualmente..." : "Escribe tu respuesta como operador..."}
+                  placeholder={modoIAActivo && !estaEscaladoActual ? "El bot está respondiendo. Escribe para intervenir manualmente..." : "Escribe tu respuesta como operador humano..."}
                   value={mensajeInput}
                   onChange={(e) => setMensajeInput(e.target.value)}
                   className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm text-gray-700 font-medium"

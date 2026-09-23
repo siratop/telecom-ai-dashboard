@@ -1,95 +1,99 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Download, Trash2, Search, AlertCircle, History, Calendar, Bot, Loader2, X, FileText, List, MessageCircle, Send, CornerDownRight, ChevronDown, ChevronUp, DollarSign, Zap, Filter } from 'lucide-react';
+import { Download, Trash2, Search, AlertCircle, History, Calendar, Bot, Loader2, X, FileText, List, MessageCircle, Send, CornerDownRight, ChevronDown, ChevronUp, DollarSign, Zap, Filter, CheckCircle, MessageSquare } from 'lucide-react';
 import jsPDF from 'jspdf';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabase } from '../../lib/supabase';
 
 export default function HistorialPage() {
  
   const [logs, setLogs] = useState([]);
   const [busqueda, setBusqueda] = useState("");
   const [periodo, setPeriodo] = useState("todos"); 
-  const [filtroIntencion, setFiltroIntencion] = useState("todas");
+  const [filtroEstado, setFiltroEstado] = useState("todos");
   const [cargandoLogs, setCargandoLogs] = useState(true);
   
- 
+
   const [reportes, setReportes] = useState([]);
   const [busquedaReportes, setBusquedaReportes] = useState("");
   const [cargandoReportes, setCargandoReportes] = useState(true);
   const [cargandoGeneracion, setCargandoGeneracion] = useState(false);
   
-  
+ 
   const [tabActiva, setTabActiva] = useState("logs");
   const [reporteReciente, setReporteReciente] = useState(null);
+
   const [reporteExpandido, setReporteExpandido] = useState(null); 
 
-  
   const [chatActivo, setChatActivo] = useState(null);
   const [pregunta, setPregunta] = useState("");
   const [respuestaIA, setRespuestaIA] = useState("");
   const [cargandoPregunta, setCargandoPregunta] = useState(false);
 
+  const cargarDatos = async () => {
+    setCargandoLogs(true);
+    setCargandoReportes(true);
+
+    try {
+      // 1. Limpieza de chats inactivos (> 24 hrs) en Supabase
+      const tiempoLimite = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: inactivos } = await supabase
+        .from('chat_conversaciones')
+        .select('chat_id')
+        .eq('estado', 'activo')
+        .lt('ultima_interaccion', tiempoLimite);
+
+      if (inactivos && inactivos.length > 0) {
+        const ids = inactivos.map(c => c.chat_id);
+        await supabase.from('chat_conversaciones').update({ estado: 'perdido' }).in('chat_id', ids);
+      }
+
+      // 2. Cargar Logs de Telegram desde Supabase
+      const { data: dataLogs, error: errLogs } = await supabase
+        .from('chat_conversaciones')
+        .select('*')
+        .neq('chat_id', '896406306') 
+        .order('ultima_interaccion', { ascending: false });
+
+      if (errLogs) throw errLogs;
+      if (dataLogs) setLogs(dataLogs);
+
+     
+      const { data: dataReportes, error: errReportes } = await supabase
+        .from('reportes_ia')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!errReportes && dataReportes) setReportes(dataReportes);
+
+    } catch (error) {
+      console.error("Error cargando datos:", error);
+    } finally {
+      setCargandoLogs(false);
+      setCargandoReportes(false);
+    }
+  };
+
   useEffect(() => {
-    const cargarDatosIniciales = async () => {
-      try {
-        const resLogs = await fetch('/api/logs');
-        if (resLogs.ok) {
-          const textLogs = await resLogs.text();
-          if (textLogs) {
-            const dataLogs = JSON.parse(textLogs);
-            if (Array.isArray(dataLogs)) setLogs(dataLogs);
-          }
-        }
-      } catch (error) {
-        console.warn("Error cargando logs. Verifica la red:", error);
-      } finally {
-        setCargandoLogs(false);
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('reportes_ia')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (error) {
-          console.warn("Advertencia de Supabase:", error.message || error);
-        } else if (data) {
-          setReportes(data);
-        }
-      } catch (error) {
-        console.warn("No se pudo conectar a Supabase. Verifica tu VPN/DNS:", error);
-      } finally {
-        setCargandoReportes(false);
-      }
-    };
-
-    cargarDatosIniciales();
+    const timer = setTimeout(() => {
+      cargarDatos();
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
  
-  const intencionesUnicas = [...new Set(logs.map(log => log.intencion_detectada).filter(Boolean))];
-
-  
   const logsFiltrados = logs.filter(log => {
-    
+
     const cumpleBusqueda = 
-      (log.telefono_cliente && log.telefono_cliente.toLowerCase().includes(busqueda.toLowerCase())) || 
-      (log.intencion_detectada && log.intencion_detectada.toLowerCase().includes(busqueda.toLowerCase()));
+      (log.nombre_usuario && log.nombre_usuario.toLowerCase().includes(busqueda.toLowerCase())) || 
+      (log.chat_id && log.chat_id.includes(busqueda));
+    
     if (!cumpleBusqueda) return false;
+    if (filtroEstado !== "todos" && log.estado !== filtroEstado) return false;
 
-    
-    if (filtroIntencion !== "todas" && log.intencion_detectada !== filtroIntencion) return false;
-
-    
     if (periodo === "todos") return true;
     
-    const fechaLog = new Date(log.fecha || log.created_at);
+    const fechaLog = new Date(log.ultima_interaccion);
     const ahora = new Date();
 
     if (periodo === "hoy") return fechaLog.toDateString() === ahora.toDateString();
@@ -105,14 +109,26 @@ export default function HistorialPage() {
   });
 
   
-  const balanceCosto = logsFiltrados.reduce((acc, log) => acc + (Number(log.costo_estimado) || 0), 0);
-  const balanceTokens = logsFiltrados.reduce((acc, log) => acc + (Number(log.prompt_tokens) || 0) + (Number(log.completion_tokens) || 0), 0);
+  const balanceCosto = logsFiltrados.reduce((acc, log) => acc + (Number(log.costo_usd) || 0), 0);
+  const balanceTokens = logsFiltrados.reduce((acc, log) => acc + (Number(log.tokens_usados) || 0), 0);
 
+  
   const reportesFiltrados = reportes.filter(rep => {
     const textoReporte = rep.reporte_texto ? rep.reporte_texto.toLowerCase() : "";
     const fechaReporte = rep.created_at ? new Date(rep.created_at).toLocaleDateString() : "";
     return textoReporte.includes(busquedaReportes.toLowerCase()) || fechaReporte.includes(busquedaReportes);
   });
+
+  const getEstadoUI = (estado) => {
+    switch (estado) {
+      case 'exitoso':
+        return <span className="px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full text-[10px] font-bold uppercase tracking-wide flex items-center w-max"><CheckCircle className="w-3 h-3 mr-1" /> Retenido</span>;
+      case 'perdido':
+        return <span className="px-2.5 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-[10px] font-bold uppercase tracking-wide flex items-center w-max"><AlertCircle className="w-3 h-3 mr-1" /> Perdido</span>;
+      default:
+        return <span className="px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[10px] font-bold uppercase tracking-wide flex items-center w-max"><MessageSquare className="w-3 h-3 mr-1" /> En curso</span>;
+    }
+  };
 
   const exportarPDF = () => {
     try {
@@ -120,19 +136,21 @@ export default function HistorialPage() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
       doc.setTextColor(30, 58, 138); 
-      doc.text("Telecom AI - Reporte de Auditoría", 14, 20);
+      doc.text("Telecom AI - Auditoría de Telegram", 14, 20);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.setTextColor(100, 100, 100);
       doc.text("Ciudad Guayana, Venezuela | Sistema de Atención Automatizada", 14, 28);
-      doc.text(`Filtro aplicado: Período (${periodo.toUpperCase()}) | Emisión: ${new Date().toLocaleString('es-VE')}`, 14, 34);
+      doc.text(`Filtro: ${periodo.toUpperCase()} | Costo Total: $${balanceCosto.toFixed(4)}`, 14, 34);
       doc.setDrawColor(200, 200, 200);
       doc.line(14, 40, 196, 40);
+      
       let posY = 50;
       if (logsFiltrados.length === 0) {
         doc.setFont("helvetica", "italic");
         doc.text("No hay registros en este período seleccionado.", 14, posY);
       }
+      
       logsFiltrados.forEach((log, index) => {
         if (posY > 270) { 
           doc.addPage();
@@ -143,16 +161,16 @@ export default function HistorialPage() {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(11);
         doc.setTextColor(30, 30, 30);
-        doc.text(`Registro #${index + 1} - Cliente: ${log.telefono_cliente || "N/A"}`, 18, posY + 8);
+        doc.text(`Registro #${index + 1} - Cliente: ${log.nombre_usuario || "N/A"}`, 18, posY + 8);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         doc.setTextColor(80, 80, 80);
-        doc.text(`Intención: ${log.intencion_detectada || "General"}`, 18, posY + 16);
-        doc.text(`Tokens (P+C): ${log.prompt_tokens || 0} + ${log.completion_tokens || 0}`, 100, posY + 16);
-        doc.text(`Costo: $${log.costo_estimado || "0.0000"}`, 160, posY + 16);
+        doc.text(`Estado: ${log.estado.toUpperCase()}`, 18, posY + 16);
+        doc.text(`Tokens: ${log.tokens_usados || 0}`, 100, posY + 16);
+        doc.text(`Costo: $${Number(log.costo_usd || 0).toFixed(4)}`, 160, posY + 16);
         posY += 30;
       });
-      doc.save(`Auditoria_${periodo}_${new Date().toISOString().slice(0,10)}.pdf`);
+      doc.save(`Auditoria_Telegram_${periodo}_${new Date().toISOString().slice(0,10)}.pdf`);
     } catch (error) {
       console.warn("Error al generar el PDF:", error);
       alert("Hubo un error al generar el PDF.");
@@ -163,11 +181,10 @@ export default function HistorialPage() {
     const confirmacion = window.confirm("⚠️ ¿Estás seguro de que deseas vaciar TODOS los registros de interacciones?");
     if (confirmacion) {
       try {
-        const res = await fetch('/api/logs', { method: 'DELETE' });
-        if (res.ok) {
-          setLogs([]); 
-          alert("✅ Registros eliminados exitosamente.");
-        }
+        await supabase.from('chat_conversaciones').delete().neq('chat_id', '0');
+        await supabase.from('chat_mensajes').delete().neq('id', 0);
+        setLogs([]); 
+        alert("✅ Registros eliminados exitosamente.");
       } catch (error) {
         console.warn("Error al borrar registros:", error);
       }
@@ -183,10 +200,10 @@ export default function HistorialPage() {
     const CHAT_ID_ADMIN = chatGuardado ? chatGuardado : '896406306'; 
     
     const datosLimpios = logsFiltrados.map(log => ({
-      fecha: log.fecha || log.created_at,
-      intencion: log.intencion_detectada,
-      total_tokens: (log.prompt_tokens || 0) + (log.completion_tokens || 0),
-      costo: log.costo_estimado
+      fecha: log.ultima_interaccion,
+      estado: log.estado,
+      total_tokens: log.tokens_usados,
+      costo: log.costo_usd
     }));
     
     try {
@@ -201,31 +218,26 @@ export default function HistorialPage() {
       
       if(data && data.reporte) {
         setReporteReciente(data.reporte); 
-        
+
         try {
           const { data: savedData, error: dbError } = await supabase
             .from('reportes_ia')
-            .insert([{ 
-              reporte_texto: data.reporte,
-              solicitado_por: 'admin'
-            }])
+            .insert([{ reporte_texto: data.reporte, solicitado_por: 'admin' }])
             .select();
           
           if (dbError) {
-            console.warn(`Error de base de datos: ${dbError.message}`);
-            alert(`⚠️ Error al guardar en Supabase. Revisa tu conexión segura.`);
+            console.warn(`Error BD: ${dbError.message}`);
           } else if (savedData && savedData.length > 0) {
             setReportes(prev => [savedData[0], ...prev]);
           }
         } catch (saveError) {
-          console.warn("Fallo de red al intentar guardar el reporte:", saveError);
-          alert("⚠️ Hubo un fallo en el navegador al intentar guardar en la base de datos.");
+          console.warn("Fallo al guardar reporte:", saveError);
         }
       } else {
-        alert("El reporte se generó, pero n8n no devolvió el texto.");
+        alert("El reporte se genero, pero n8n no devolvio el texto.");
       }
     } catch (error) {
-      console.warn("Error al conectar con n8n:", error);
+      console.warn("Error n8n:", error);
       alert("Hubo un error al enviar la señal al servidor automatizado.");
     } finally {
       setCargandoGeneracion(false);
@@ -234,21 +246,12 @@ export default function HistorialPage() {
 
   const eliminarReporte = async (id, e) => {
     e.stopPropagation(); 
-    const confirmacion = window.confirm("¿Estás seguro de eliminar este reporte gerencial de forma permanente?");
-    if (confirmacion) {
+    if (window.confirm("¿Estás seguro de eliminar este reporte gerencial?")) {
       try {
-        const { error } = await supabase
-          .from('reportes_ia')
-          .delete()
-          .eq('id', id);
-
-        if (error) {
-          alert(`Error al borrar en Supabase: ${error.message}`);
-        } else {
-          setReportes(prev => prev.filter(rep => rep.id !== id));
-        }
+        const { error } = await supabase.from('reportes_ia').delete().eq('id', id);
+        if (!error) setReportes(prev => prev.filter(rep => rep.id !== id));
       } catch (error) {
-        console.warn("Error al borrar reporte:", error);
+        console.warn("Error borrando reporte:", error);
       }
     }
   };
@@ -262,21 +265,13 @@ export default function HistorialPage() {
       const response = await fetch(N8N_CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          accion: 'preguntar_reporte',
-          reporte_contexto: reporteTexto, 
-          pregunta_usuario: pregunta 
-        })
+        body: JSON.stringify({ accion: 'preguntar_reporte', reporte_contexto: reporteTexto, pregunta_usuario: pregunta })
       });
       const data = await response.json();
-      if(data && data.respuesta) {
-        setRespuestaIA(data.respuesta);
-      } else {
-        setRespuestaIA("Análisis completado, pero n8n no devolvió un formato válido.");
-      }
+      setRespuestaIA(data?.respuesta || "Análisis completado, pero sin formato válido.");
     } catch (error) {
       console.warn("Error de conexión con n8n:", error);
-      setRespuestaIA("⚠️ Error de conexión con n8n.");
+      setRespuestaIA("⚠️ Error de conexion con n8n.");
     } finally {
       setCargandoPregunta(false);
     }
@@ -294,12 +289,13 @@ export default function HistorialPage() {
 
   return (
     <div className="p-8 w-full max-w-7xl mx-auto">
+      {/* HEADER */}
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-800 flex items-center">
             <History className="w-8 h-8 mr-3 text-blue-600" /> Auditoría e Informes
           </h1>
-          <p className="text-gray-500 mt-1">Revisa el historial de interacciones o consulta los reportes generados por la IA.</p>
+          <p className="text-gray-500 mt-1">Revisa el historial de interacciones de Telegram o consulta reportes de IA.</p>
         </div>
         
         <div className="flex gap-3">
@@ -314,25 +310,25 @@ export default function HistorialPage() {
         </div>
       </div>
 
-      {/* Sistema de Pestañas */}
+      {/* TABS */}
       <div className="flex space-x-2 border-b border-gray-200 mb-6">
         <button onClick={() => setTabActiva("logs")} className={`flex items-center px-6 py-3 font-medium text-sm transition-colors border-b-2 ${tabActiva === "logs" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}>
-          <List className="w-4 h-4 mr-2" /> Interacciones de Clientes
+          <List className="w-4 h-4 mr-2" /> Interacciones de Telegram
         </button>
         <button onClick={() => setTabActiva("reportes")} className={`flex items-center px-6 py-3 font-medium text-sm transition-colors border-b-2 ${tabActiva === "reportes" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}>
           <FileText className="w-4 h-4 mr-2" /> Reportes Gerenciales (IA)
         </button>
       </div>
 
-      {/* PESTAÑA 1: LOGS DE INTERACCIONES */}
+      {/* VISTA LOGS */}
       {tabActiva === "logs" && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
           
-          {/* Tarjetas de Balance (Nueva Adición) */}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-gray-500 mb-1">Costo Acumulado ({periodo})</p>
+                <p className="text-sm font-semibold text-gray-500 mb-1">Costo IA Acumulado ({periodo})</p>
                 <h3 className="text-3xl font-bold text-purple-600">${balanceCosto.toFixed(4)}</h3>
               </div>
               <div className="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center">
@@ -353,22 +349,22 @@ export default function HistorialPage() {
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
             <div className="flex items-center flex-1 w-full max-w-sm">
               <Search className="w-5 h-5 text-gray-400 mr-3" />
-              <input type="text" placeholder="Buscar teléfono..." className="w-full outline-none text-gray-700 bg-transparent text-sm" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+              <input type="text" placeholder="Buscar por usuario o ID..." className="w-full outline-none text-gray-700 bg-transparent text-sm" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
             </div>
 
             <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
-              {/* Filtro de Intención */}
+
               <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-2">
                 <Filter className="w-4 h-4 text-gray-500 mr-2 ml-1" />
-                <select value={filtroIntencion} onChange={(e) => setFiltroIntencion(e.target.value)} className="py-2 bg-transparent text-sm text-gray-700 outline-none font-medium min-w-[140px]">
-                  <option value="todas">Todas las intenciones</option>
-                  {intencionesUnicas.map(intencion => (
-                    <option key={intencion} value={intencion}>{intencion}</option>
-                  ))}
+                <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="py-2 bg-transparent text-sm text-gray-700 outline-none font-medium min-w-[140px]">
+                  <option value="todos">Todos los Estados</option>
+                  <option value="activo">En Curso (Activo)</option>
+                  <option value="exitoso">Retenidos (Exitoso)</option>
+                  <option value="perdido">Perdidos / Abandonos</option>
                 </select>
               </div>
 
-              {/* Filtro de Período */}
+
               <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-2">
                 <Calendar className="w-4 h-4 text-blue-600 mr-2 ml-1" />
                 <select value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="py-2 bg-transparent text-sm text-gray-700 outline-none font-medium">
@@ -387,37 +383,46 @@ export default function HistorialPage() {
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             {cargandoLogs ? (
-              <div className="p-8 text-center text-gray-500">Cargando registros...</div>
+              <div className="p-8 text-center text-gray-500 flex justify-center items-center"><Loader2 className="w-5 h-5 animate-spin mr-2"/> Sincronizando con Supabase...</div>
             ) : logsFiltrados.length === 0 ? (
               <div className="p-12 text-center flex flex-col items-center">
                 <AlertCircle className="w-12 h-12 text-gray-300 mb-3" />
-                <p className="text-gray-500 font-medium">No se encontraron interacciones para estos filtros</p>
+                <p className="text-gray-500 font-medium">No se encontraron interacciones de Telegram para estos filtros</p>
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-200">
-                    <th className="p-4 font-semibold">Fecha y Hora</th><th className="p-4 font-semibold">Cliente</th><th className="p-4 font-semibold">Intención Detectada</th><th className="p-4 font-semibold">Tokens</th><th className="p-4 font-semibold">Costo Est.</th>
-                  </tr>
-                </thead>
-                <tbody className="text-gray-700 text-sm divide-y divide-gray-100">
-                  {logsFiltrados.map((log, index) => (
-                    <tr key={index} className="hover:bg-blue-50/40 transition-colors">
-                      <td className="p-4 text-gray-500">{new Date(log.fecha || log.created_at).toLocaleString('es-VE')}</td>
-                      <td className="p-4 font-medium text-gray-800">{log.telefono_cliente}</td>
-                      <td className="p-4"><span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-[10px] uppercase tracking-wide font-bold">{log.intencion_detectada || "General"}</span></td>
-                      <td className="p-4 text-gray-500">{log.prompt_tokens} + {log.completion_tokens}</td>
-                      <td className="p-4 font-mono text-purple-600 font-medium">${log.costo_estimado}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-200">
+                      <th className="p-4 font-semibold">Cliente</th>
+                      <th className="p-4 font-semibold">Estado</th>
+                      <th className="p-4 font-semibold text-center">Tokens Usados</th>
+                      <th className="p-4 font-semibold text-center">Costo Est.</th>
+                      <th className="p-4 font-semibold text-right">Última Actividad</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="text-gray-700 text-sm divide-y divide-gray-100">
+                    {logsFiltrados.map((log) => (
+                      <tr key={log.chat_id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="p-4">
+                          <div className="font-bold text-gray-800">{log.nombre_usuario}</div>
+                          <div className="text-[10px] text-gray-400 font-mono">ID: {log.chat_id}</div>
+                        </td>
+                        <td className="p-4">{getEstadoUI(log.estado)}</td>
+                        <td className="p-4 text-center font-mono text-gray-500 bg-gray-50/50">{log.tokens_usados || 0}</td>
+                        <td className="p-4 text-center font-mono text-purple-600 font-medium">${Number(log.costo_usd || 0).toFixed(4)}</td>
+                        <td className="p-4 text-right text-gray-500 text-xs">{new Date(log.ultima_interaccion).toLocaleString('es-VE')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* PESTAÑA 2: REPORTES GERENCIALES */}
+      {/* VISTA REPORTES */}
       {tabActiva === "reportes" && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
           
@@ -437,12 +442,12 @@ export default function HistorialPage() {
 
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6 flex items-center">
             <Search className="w-5 h-5 text-gray-400 mr-3" />
-            <input type="text" placeholder="Buscar en los reportes por contenido o fecha (Ej: 14/9/2026)..." className="w-full outline-none text-gray-700 bg-transparent text-sm" value={busquedaReportes} onChange={(e) => setBusquedaReportes(e.target.value)} />
+            <input type="text" placeholder="Buscar en reportes guardados..." className="w-full outline-none text-gray-700 bg-transparent text-sm" value={busquedaReportes} onChange={(e) => setBusquedaReportes(e.target.value)} />
           </div>
 
           <div className="space-y-4">
             {cargandoReportes ? (
-              <div className="p-8 text-center text-gray-500">Cargando biblioteca de reportes...</div>
+              <div className="p-8 text-center text-gray-500 flex justify-center"><Loader2 className="w-5 h-5 animate-spin mr-2"/> Cargando biblioteca...</div>
             ) : reportesFiltrados.length === 0 ? (
               <div className="p-12 text-center bg-white rounded-xl border border-gray-100">
                 <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -453,8 +458,8 @@ export default function HistorialPage() {
                 const estaExpandido = reporteExpandido === rep.id;
                 
                 return (
-                  <div key={rep.id} className={`bg-white rounded-xl shadow-sm border ${estaExpandido ? 'border-blue-200 ring-1 ring-blue-100' : 'border-gray-100 hover:border-blue-100'} overflow-hidden transition-all duration-200`}>
-                    {/* Encabezado del Acordeón (Siempre visible) */}
+                  
+                <div key={rep.id} className={`bg-white rounded-xl shadow-sm border ${estaExpandido ? 'border-blue-200 ring-1 ring-blue-100' : 'border-gray-100 hover:border-blue-100'} overflow-hidden transition-all duration-200`}>
                     <div 
                       className={`px-6 py-4 flex justify-between items-center cursor-pointer ${estaExpandido ? 'bg-blue-50/50 border-b border-blue-100' : 'bg-white'}`}
                       onClick={() => toggleReporte(rep.id)}
@@ -487,14 +492,14 @@ export default function HistorialPage() {
                       </div>
                     </div>
                     
-                    {/* Contenido Desplegable */}
+
                     {estaExpandido && (
                       <div className="animate-in slide-in-from-top-2 duration-200">
                         <div className="p-6 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed font-mono bg-white">
                           {rep.reporte_texto}
                         </div>
 
-                        {/* Botón para abrir chat */}
+
                         <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end">
                           <button 
                             onClick={() => setChatActivo(chatActivo === rep.id ? null : rep.id)} 
@@ -505,7 +510,7 @@ export default function HistorialPage() {
                           </button>
                         </div>
 
-                        {/* INTERFAZ DE CHAT (Solo visible si chatActivo coincide) */}
+
                         {chatActivo === rep.id && (
                           <div className="bg-purple-50/50 p-6 border-t border-purple-100">
                             <h4 className="text-sm font-bold text-purple-900 flex items-center mb-3">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Settings, Save, Sliders, PhoneCall, Send, ToggleLeft, ToggleRight, CheckCircle2, Banknote, RefreshCcw, MessageSquareQuote, Key } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -18,52 +18,16 @@ export default function ConfiguracionPage() {
   const [tasaUSDT, setTasaUSDT] = useState("43.00");
   const [cargandoTasas, setCargandoTasas] = useState(false);
 
-  const [promptSistema, setPromptSistema] = useState("Eres un asistente virtual de Telecom AI. Tu objetivo es ayudar a los clientes con información de planes, soporte técnico y validación de cobertura de fibra óptica.");
+  const [promptSistema, setPromptSistema] = useState("Eres un asistente virtual de Telecom AI. Tu objetivo es ayudar a los clientes con informacion de planes, soporte técnico y validacion de cobertura de fibra optica.");
   
-  // NUEVO ESTADO PARA EL CÓDIGO DE ADMINISTRADOR
+  
   const [codigoAdmin, setCodigoAdmin] = useState("");
 
   const [guardado, setGuardado] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
-  useEffect(() => {
-    const cargarConfiguracionBD = async () => {
-      const { data, error } = await supabase.from('configuracion').select('*');
-      
-      if (error) {
-        console.error("Error al cargar configuración:", error);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        const configBD = {};
-        data.forEach(item => { configBD[item.clave] = item.valor; });
-
-        if (configBD['TELEGRAM_BOT_TOKEN']) setTelegramToken(configBD['TELEGRAM_BOT_TOKEN']);
-        if (configBD['TELEGRAM_CHAT_ID']) setTelegramChatId(configBD['TELEGRAM_CHAT_ID']);
-        if (configBD['NUMERO_SOPORTE']) setNumeroSoporte(configBD['NUMERO_SOPORTE']);
-        if (configBD['TEMPERATURA_IA']) setTemperatura(configBD['TEMPERATURA_IA']);
-        if (configBD['PROMPT_SISTEMA']) setPromptSistema(configBD['PROMPT_SISTEMA']);
-        if (configBD['TIPO_TASA']) setTipoTasa(configBD['TIPO_TASA']);
-        if (configBD['TASA_USD']) setTasaUSD(configBD['TASA_USD']);
-        if (configBD['TASA_EUR']) setTasaEUR(configBD['TASA_EUR']);
-        if (configBD['TASA_USDT']) setTasaUSDT(configBD['TASA_USDT']);
-        
-        // Cargar el código secreto desde la base de datos
-        if (configBD['codigo_admin']) setCodigoAdmin(configBD['codigo_admin']);
-        
-        if (configBD['BOT_ACTIVO'] !== undefined) setBotActivo(configBD['BOT_ACTIVO'] === 'true');
-
-        if ((configBD['TIPO_TASA'] || "api") === "api") {
-          actualizarTasasDesdeAPI();
-        }
-      }
-    };
-
-    cargarConfiguracionBD();
-  }, []);
-
-  const actualizarTasasDesdeAPI = async () => {
+  
+  const actualizarTasasDesdeAPI = useCallback(async () => {
     setCargandoTasas(true);
     try {
       const fetchSeguro = async (url) => {
@@ -89,14 +53,51 @@ export default function ConfiguracionPage() {
     } finally {
       setCargandoTasas(false);
     }
-  };
+  }, []); 
+
+  useEffect(() => {
+    const cargarConfiguracionBD = async () => {
+      const { data, error } = await supabase.from('configuracion').select('*');
+      
+      if (error) {
+        console.error("Error al cargar configuración:", error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        const configBD = {};
+        data.forEach(item => { configBD[item.clave] = item.valor; });
+
+        if (configBD['TELEGRAM_BOT_TOKEN']) setTelegramToken(configBD['TELEGRAM_BOT_TOKEN']);
+        if (configBD['TELEGRAM_CHAT_ID']) setTelegramChatId(configBD['TELEGRAM_CHAT_ID']);
+        if (configBD['NUMERO_SOPORTE']) setNumeroSoporte(configBD['NUMERO_SOPORTE']);
+        if (configBD['TEMPERATURA_IA']) setTemperatura(configBD['TEMPERATURA_IA']);
+        if (configBD['PROMPT_SISTEMA']) setPromptSistema(configBD['PROMPT_SISTEMA']);
+        if (configBD['TIPO_TASA']) setTipoTasa(configBD['TIPO_TASA']);
+        if (configBD['TASA_USD']) setTasaUSD(configBD['TASA_USD']);
+        if (configBD['TASA_EUR']) setTasaEUR(configBD['TASA_EUR']);
+        if (configBD['TASA_USDT']) setTasaUSDT(configBD['TASA_USDT']);
+        
+        
+        if (configBD['codigo_admin']) setCodigoAdmin(configBD['codigo_admin']);
+        
+        if (configBD['BOT_ACTIVO'] !== undefined) setBotActivo(configBD['BOT_ACTIVO'] === 'true');
+
+        if ((configBD['TIPO_TASA'] || "api") === "api") {
+          actualizarTasasDesdeAPI();
+        }
+      }
+    };
+
+    cargarConfiguracionBD();
+  }, [actualizarTasasDesdeAPI]); 
 
   const guardarConfiguracion = async (e) => {
     e.preventDefault();
     setGuardando(true);
 
     const configuraciones = [
-      { clave: 'TELEGRAM_BOT_TOKEN', valor: telegramToken },
+      { clave: 'TELEGRAM_BOT_TOKEN', telegramToken },
       { clave: 'TELEGRAM_CHAT_ID', valor: telegramChatId },
       { clave: 'NUMERO_SOPORTE', valor: numeroSoporte },
       { clave: 'TEMPERATURA_IA', valor: temperatura },
@@ -106,9 +107,12 @@ export default function ConfiguracionPage() {
       { clave: 'TASA_USD', valor: tasaUSD },
       { clave: 'TASA_EUR', valor: tasaEUR },
       { clave: 'TASA_USDT', valor: tasaUSDT },
-      // Guardar el código secreto en Supabase
+      
       { clave: 'codigo_admin', valor: codigoAdmin },
     ];
+
+    
+    configuraciones[0] = { clave: 'TELEGRAM_BOT_TOKEN', valor: telegramToken };
 
     const { error } = await supabase.from('configuracion').upsert(configuraciones);
 
@@ -129,24 +133,24 @@ export default function ConfiguracionPage() {
         <h1 className="text-3xl font-bold text-gray-800 flex items-center">
           <Settings className="w-8 h-8 mr-3 text-blue-600" /> Configuración del Sistema
         </h1>
-        <p className="text-gray-500 mt-1">Parámetros operativos del bot, umbrales de Gemini, finanzas y líneas de soporte (Guardados en PostgreSQL).</p>
+        <p className="text-gray-500 mt-1">Parametros operativos del bot, umbrales de Gemini, finanzas y líneas de soporte (Guardados en PostgreSQL).</p>
       </div>
 
       {guardado && (
         <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-xl text-sm font-medium flex items-center shadow-sm">
-          <CheckCircle2 className="w-5 h-5 mr-2" /> Configuración y credenciales guardadas en la base de datos de Supabase.
+          <CheckCircle2 className="w-5 h-5 mr-2" /> Configuracion y credenciales guardadas en la base de datos de Supabase.
         </div>
       )}
 
       <form onSubmit={guardarConfiguracion} className="space-y-6">
         
-        {/* SEGURIDAD Y ACCESOS (NUEVO) */}
+       
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
           <h3 className="text-lg font-bold text-gray-800 flex items-center">
             <Key className="w-5 h-5 mr-2 text-purple-600" /> Seguridad y Accesos
           </h3>
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Código de Administrador (Para nuevos registros):</label>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Codigo de Administrador (Para nuevos registros):</label>
             <input 
               type="text" 
               value={codigoAdmin} 
@@ -156,17 +160,17 @@ export default function ConfiguracionPage() {
               required 
             />
             <p className="text-xs text-gray-500 mt-2">
-              Este código secreto será exigido en la pantalla de inicio de sesión cuando un usuario intente crear una cuenta nueva.
+              Este codigo secreto será exigido en la pantalla de inicio de sesion cuando un usuario intente crear una cuenta nueva.
             </p>
           </div>
         </div>
 
-        {/* FINANZAS */}
+        
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-5">
           <div className="flex justify-between items-start">
             <div>
               <h3 className="text-lg font-bold text-gray-800 flex items-center">
-                <Banknote className="w-5 h-5 mr-2 text-emerald-600" /> Parámetros Financieros (Tasas de Cambio)
+                <Banknote className="w-5 h-5 mr-2 text-emerald-600" /> Parametros Financieros (Tasas de Cambio)
               </h3>
               <p className="text-xs text-gray-500 mt-1">Define las tasas utilizadas para calcular presupuestos e informes.</p>
             </div>
@@ -201,10 +205,10 @@ export default function ConfiguracionPage() {
           )}
         </div>
 
-        {/* IA */}
+      
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
           <h3 className="text-lg font-bold text-gray-800 flex items-center">
-            <Sliders className="w-5 h-5 mr-2 text-blue-600" /> Parámetros de Inteligencia Artificial (Gemini)
+            <Sliders className="w-5 h-5 mr-2 text-blue-600" /> Parametros de Inteligencia Artificial (Gemini)
           </h3>
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center">
@@ -220,16 +224,16 @@ export default function ConfiguracionPage() {
           </div>
         </div>
 
-        {/* SOPORTE */}
+        
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
           <h3 className="text-lg font-bold text-gray-800 flex items-center"><PhoneCall className="w-5 h-5 mr-2 text-blue-600" /> Escalamiento a Soporte Humano</h3>
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Número de Teléfono (WhatsApp / Llamadas):</label>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Numero de Teléfono (WhatsApp / Llamadas):</label>
             <input type="text" value={numeroSoporte} onChange={(e) => setNumeroSoporte(e.target.value)} className="w-full md:w-1/2 px-4 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono text-gray-700" required />
           </div>
         </div>
 
-        {/* TELEGRAM */}
+       
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
           <h3 className="text-lg font-bold text-gray-800 flex items-center"><Send className="w-5 h-5 mr-2 text-blue-600" /> Asociación de Telegram Bot</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -244,11 +248,11 @@ export default function ConfiguracionPage() {
           </div>
         </div>
 
-        {/* ESTADO GLOBAL */}
+       
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-gray-800">Estado Global del Bot</h3>
-            <p className="text-sm text-gray-500">Activa o detiene temporalmente las respuestas automáticas.</p>
+            <p className="text-sm text-gray-500">Activa o detiene temporalmente las respuestas automaticas.</p>
           </div>
           <button type="button" onClick={() => setBotActivo(!botActivo)} className="text-blue-600 outline-none">
             {botActivo ? (

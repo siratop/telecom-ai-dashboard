@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Activity, Server, Database, Globe, CheckCircle2, RefreshCw, AlertTriangle, XCircle } from 'lucide-react';
 
 export default function MonitorRedPage() {
@@ -9,13 +9,15 @@ export default function MonitorRedPage() {
     supabase: "Verificando...",
     gemini: "Operativo (v1beta)"
   });
-  const [verificando, setVerificando] = useState(false);
+  
+  
+  const [verificando, setVerificando] = useState(true); 
   const [alertasActivas, setAlertasActivas] = useState([]);
 
-  const comprobarServicios = async () => {
+  const comprobarServicios = useCallback(async () => {
     setVerificando(true);
     try {
-      
+
       const res = await fetch('/api/logs');
       if (res.ok) {
         setEstado({
@@ -27,7 +29,6 @@ export default function MonitorRedPage() {
         setEstado(prev => ({ ...prev, supabase: "Error de respuesta" }));
       }
 
-      
       const resAlertas = await fetch('/api/alertas');
       const dataAlertas = await resAlertas.json();
       if (Array.isArray(dataAlertas)) {
@@ -36,27 +37,31 @@ export default function MonitorRedPage() {
 
     } catch (error) {
       setEstado({
-        webhook: "Falla de comunicación",
-        supabase: "Sin conexión",
+        webhook: "Falla de comunicacion",
+        supabase: "Sin conexion",
         gemini: "Desconocido"
       });
     } finally {
       setVerificando(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    comprobarServicios();
-  }, []);
+   
+    const timer = setTimeout(() => {
+      comprobarServicios();
+    }, 0);
+    
+    return () => clearTimeout(timer);
+  }, [comprobarServicios]);
 
   const dispararAlarmaPrueba = async () => {
     const nodoSimulado = "Fibra Óptica - Sector Alta Vista";
-    
-   
+
     const chatGuardado = localStorage.getItem('TELEGRAM_CHAT_ID') || '896406306';
     
     try {
-      
+
       await fetch('/api/alertas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -65,7 +70,6 @@ export default function MonitorRedPage() {
       
       comprobarServicios(); 
 
-      
       try {
         const N8N_ALARMA_URL = 'http://localhost:5678/webhook-test/alarma-red'; 
         await fetch(N8N_ALARMA_URL, {
@@ -80,7 +84,7 @@ export default function MonitorRedPage() {
         alert(`🚨 ¡Alarma disparada! Mensaje enviado al Chat ID: ${chatGuardado}`);
       } catch (n8nError) {
         console.warn("n8n no estaba escuchando.");
-        alert(`🚨 Falla registrada en Supabase.\n\n(Nota: El mensaje de Telegram no salió porque n8n no estaba escuchando).`);
+        alert(`🚨 Falla registrada en Supabase.\n\n(Nota: El mensaje de Telegram no salio porque n8n no estaba escuchando).`);
       }
 
     } catch (error) {
@@ -109,7 +113,7 @@ export default function MonitorRedPage() {
           <h1 className="text-3xl font-bold text-gray-800 flex items-center">
             <Activity className="w-8 h-8 mr-3 text-blue-600" /> Monitor de Estado de Red
           </h1>
-          <p className="text-gray-500 mt-1">Diagnóstico en tiempo real de los servicios y pasarelas del sistema.</p>
+          <p className="text-gray-500 mt-1">Diagnostico en tiempo real de los servicios y pasarelas del sistema.</p>
         </div>
         
         <div className="flex gap-3">
@@ -132,7 +136,6 @@ export default function MonitorRedPage() {
         </div>
       </div>
 
-      {/* BANNER DE ALERTA CRÍTICA */}
       {alertasActivas.length > 0 && (
         <div className="mb-8 p-6 bg-red-50 border-2 border-red-500 rounded-xl shadow-sm animate-pulse">
           <div className="flex items-center justify-between">
@@ -140,7 +143,7 @@ export default function MonitorRedPage() {
               <AlertTriangle className="w-8 h-8 text-red-600 mr-4" />
               <div>
                 <h2 className="text-xl font-bold text-red-700">¡ALERTA CRÍTICA DE RED ACTIVA!</h2>
-                <p className="text-red-600 mt-1">Equipos técnicos notificados vía Telegram. Requiere atención inmediata.</p>
+                <p className="text-red-600 mt-1">Equipos tecnicos notificados vía Telegram. Requiere atención inmediata.</p>
               </div>
             </div>
           </div>
@@ -176,7 +179,7 @@ export default function MonitorRedPage() {
             </span>
           </div>
           <h3 className="text-lg font-bold text-gray-800">Webhook n8n</h3>
-          <p className="text-sm text-gray-500 mt-1">Recepción de mensajes entrantes.</p>
+          <p className="text-sm text-gray-500 mt-1">Recepcion de mensajes entrantes.</p>
           <div className="mt-4 pt-4 border-t border-gray-100 text-xs font-medium text-gray-700">
             Estado: <span className="text-blue-600">{estado.webhook}</span>
           </div>
