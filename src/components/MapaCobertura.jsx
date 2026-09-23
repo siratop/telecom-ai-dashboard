@@ -1,16 +1,11 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
+
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { MapContainer, TileLayer, Circle, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet';
 
-const MapContainer = dynamic(() => import('react-leaflet').then((mod) => mod.MapContainer), { ssr: false });
-const TileLayer = dynamic(() => import('react-leaflet').then((mod) => mod.TileLayer), { ssr: false });
-const Circle = dynamic(() => import('react-leaflet').then((mod) => mod.Circle), { ssr: false });
-const Marker = dynamic(() => import('react-leaflet').then((mod) => mod.Marker), { ssr: false });
-const Popup = dynamic(() => import('react-leaflet').then((mod) => mod.Popup), { ssr: false });
-const Polyline = dynamic(() => import('react-leaflet').then((mod) => mod.Polyline), { ssr: false });
 
 const iconCenter = new L.Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -47,18 +42,32 @@ const iconPoste = new L.Icon({
   shadowSize: [41, 41]
 });
 
-function MapEventsWrapper({ onSeleccionar, modoDibujo, centroEnfoque }) {
-  const [mapInstance, setMapInstance] = useState(null);
 
-  // Hook interno seguro para capturar eventos del mapa de forma dinámica
+function MapController({ centroEnfoque, onSeleccionarCoordenadas }) {
+  const map = useMap();
+
+  
   useEffect(() => {
-    import('react-leaflet').then(({ useMap }) => {
-      // Este componente interno se encarga de manejar la instancia sin romper el DOM
-    });
-  }, []);
+    if (centroEnfoque && centroEnfoque.lat && centroEnfoque.lng) {
+      map.flyTo([centroEnfoque.lat, centroEnfoque.lng], centroEnfoque.zoom || 17, {
+        animate: true,
+        duration: 1.5 
+      });
+    }
+  }, [centroEnfoque, map]);
+
+ 
+  useMapEvents({
+    click(e) {
+      if (onSeleccionarCoordenadas) {
+        onSeleccionarCoordenadas(e.latlng.lat, e.latlng.lng);
+      }
+    }
+  });
 
   return null;
 }
+
 
 export default function MapaCobertura({ 
   zonas = [], 
@@ -76,7 +85,7 @@ export default function MapaCobertura({
   const defaultCenter = [8.2932, -62.7303];
 
   useEffect(() => {
-    // Corrección para evitar el set-state-in-effect
+
     const timer = setTimeout(() => {
       setIsMounted(true);
     }, 0);
@@ -84,7 +93,7 @@ export default function MapaCobertura({
     return () => {
       clearTimeout(timer);
       setIsMounted(false);
-      // Limpieza profunda del ID de Leaflet en el DOM al salir de la página
+
       const container = document.getElementById('mapa-contenedor-telecom');
       if (container) {
         container._leaflet_id = null;
@@ -93,7 +102,7 @@ export default function MapaCobertura({
     };
   }, []);
 
-  // Si no está montado en el cliente, mostramos el contenedor gris de carga para evitar errores de SSR
+
   if (!isMounted) {
     return <div className="h-full flex items-center justify-center bg-gray-100 text-gray-400 rounded-xl">Cargando mapa...</div>;
   }
@@ -104,17 +113,20 @@ export default function MapaCobertura({
       center={defaultCenter} 
       zoom={13} 
       style={{ height: "100%", width: "100%", borderRadius: "0.75rem", zIndex: 0 }}
-      whenCreated={(map) => {
-        if (centroEnfoque) {
-          map.flyTo([centroEnfoque.lat, centroEnfoque.lng], centroEnfoque.zoom || 17);
-        }
-      }}
+
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; OpenStreetMap contributors'
       />
 
+      {/* Controlador de Eventos y Animaciones */}
+      <MapController 
+        centroEnfoque={centroEnfoque} 
+        onSeleccionarCoordenadas={onSeleccionarCoordenadas} 
+      />
+
+      {/* Zonas de Cobertura (Nodos) */}
       {zonas.map((zona) => (
         <div key={`nodo-${zona.id}`}>
           <Circle
@@ -137,7 +149,7 @@ export default function MapaCobertura({
         </div>
       ))}
 
-
+      {/* Rutas (Fibra Óptica) */}
       {rutas.map((ruta) => (
         <div key={`ruta-${ruta.id}`}>
           <Polyline 
@@ -147,6 +159,7 @@ export default function MapaCobertura({
         </div>
       ))}
 
+      {/* Postes NAP */}
       {postes.map((poste) => (
         <Marker key={`poste-${poste.id}`} position={[poste.lat, poste.lng]} icon={iconPoste}>
           <Popup>
@@ -156,6 +169,7 @@ export default function MapaCobertura({
         </Marker>
       ))}
 
+      {/* Clientes */}
       {clientes.map((cliente) => (
         <Marker key={`cliente-${cliente.id}`} position={[cliente.lat, cliente.lng]} icon={iconCliente}>
           <Popup>
@@ -166,7 +180,7 @@ export default function MapaCobertura({
         </Marker>
       ))}
 
-
+      {/* Dibujo en vivo de rutas */}
       {puntosRutaActual.length > 0 && (
         <>
           <Polyline 
@@ -179,7 +193,7 @@ export default function MapaCobertura({
         </>
       )}
 
-
+      {/* Marcador temporal al seleccionar un punto */}
       {nuevaLat && nuevaLng && !modoDibujo && (
         <Marker position={[nuevaLat, nuevaLng]} icon={iconCenter}>
           <Popup>Ubicacion seleccionada</Popup>
